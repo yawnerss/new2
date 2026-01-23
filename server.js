@@ -325,7 +325,15 @@ const adminHTML = `<!DOCTYPE html>
                     <option value="xmlrpc">XML-RPC Flood</option>
                     <option value="api-abuse">API Abuse</option>
                     <option value="cache-bypass">Advanced Cache Bypass</option>
+                    <option value="minecraft-handshake">Minecraft Handshake Flood</option>
+                    <option value="minecraft-ping">Minecraft Ping Flood</option>
+                    <option value="minecraft-login">Minecraft Login Spam</option>
+                    <option value="minecraft-join">Minecraft Join Flood</option>
                 </select>
+            </div>
+            <div class="form-group" id="minecraftPortGroup" style="display: none;">
+                <label>Minecraft Server Port</label>
+                <input type="number" id="minecraftPort" value="25565" min="1" max="65535">
             </div>
             <div class="form-group">
                 <label>Attack Duration (seconds)</label>
@@ -552,10 +560,13 @@ const adminHTML = `<!DOCTYPE html>
         }
 
         function startTest() {
+            const attackMode = document.getElementById('attackMode').value;
+            const isMinecraft = attackMode.startsWith('minecraft-');
+            
             const config = {
                 target: document.getElementById('targetUrl').value,
                 method: document.getElementById('method').value,
-                attackMode: document.getElementById('attackMode').value,
+                attackMode: attackMode,
                 duration: parseInt(document.getElementById('duration').value),
                 threads: parseInt(document.getElementById('threads').value),
                 delay: parseInt(document.getElementById('delay').value),
@@ -566,11 +577,12 @@ const adminHTML = `<!DOCTYPE html>
                 randomParams: document.getElementById('randomParams').checked,
                 cookieFlood: document.getElementById('cookieFlood').checked,
                 rangeHeader: document.getElementById('rangeHeader').checked,
-                postData: document.getElementById('postData').value
+                postData: document.getElementById('postData').value,
+                minecraftPort: isMinecraft ? parseInt(document.getElementById('minecraftPort').value) : 25565
             };
             
             if (!config.target) {
-                alert('Please enter a target URL');
+                alert('Please enter a target URL or IP address');
                 return;
             }
             
@@ -586,6 +598,18 @@ const adminHTML = `<!DOCTYPE html>
             
             ws.send(JSON.stringify({ type: 'start_test', config }));
         }
+
+        // Show/hide Minecraft port field based on attack mode
+        document.getElementById('attackMode').addEventListener('change', function() {
+            const isMinecraft = this.value.startsWith('minecraft-');
+            document.getElementById('minecraftPortGroup').style.display = isMinecraft ? 'block' : 'none';
+            
+            if (isMinecraft) {
+                document.getElementById('targetUrl').placeholder = 'mc.hypixel.net or 192.168.1.1';
+            } else {
+                document.getElementById('targetUrl').placeholder = 'https://example.com';
+            }
+        });
 
         function stopTest() {
             ws.send(JSON.stringify({ type: 'stop_test' }));
