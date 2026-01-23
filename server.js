@@ -789,7 +789,10 @@ const server = http.createServer((req, res) => {
 const wss = new WebSocket.Server({ 
   server,
   clientTracking: true,
-  perMessageDeflate: false
+  perMessageDeflate: false,
+  // Add these options for Render compatibility
+  verifyClient: (info) => true,
+  handleProtocols: (protocols, request) => protocols[0]
 });
 
 // Heartbeat to keep connections alive
@@ -801,10 +804,15 @@ function heartbeat() {
 const heartbeatInterval = setInterval(() => {
   wss.clients.forEach((ws) => {
     if (ws.isAlive === false) {
+      console.log('[x] Terminating dead connection');
       return ws.terminate();
     }
     ws.isAlive = false;
-    ws.ping();
+    try {
+      ws.ping();
+    } catch (e) {
+      console.error('[!] Ping error:', e.message);
+    }
   });
 }, 30000);
 
@@ -864,6 +872,14 @@ wss.on('connection', (ws) => {
             type: 'worker_connected',
             workerId: clientId
           });
+          // Also send updated status to all admins
+          setTimeout(() => {
+            clients.forEach((client) => {
+              if (client.type === 'admin' && client.ws.readyState === WebSocket.OPEN) {
+                sendStatus(client.ws);
+              }
+            });
+          }, 100);
         }
       }
       
@@ -889,12 +905,12 @@ wss.on('connection', (ws) => {
       }
       
     } catch (err) {
-      console.error('Message error:', err);
+      console.error('[!] Message error:', err);
     }
   });
 
   ws.on('close', () => {
-    console.log(`[-] Client #${clientId} disconnected`);
+    console.log(`[-] Client #${clientId} disconnected (type: ${clientInfo.type || 'unknown'})`);
     
     // Keep the final stats before removing
     const finalStats = {
@@ -910,6 +926,19 @@ wss.on('connection', (ws) => {
       clientId,
       finalStats 
     });
+    
+    // Update all admin panels
+    setTimeout(() => {
+      clients.forEach((client) => {
+        if (client.type === 'admin' && client.ws.readyState === WebSocket.OPEN) {
+          sendStatus(client.ws);
+        }
+      });
+    }, 100);
+  });
+
+  ws.on('error', (error) => {
+    console.error(`[!] WebSocket error on client #${clientId}:`, error.message);
   });
 });
 
