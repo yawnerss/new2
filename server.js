@@ -311,6 +311,20 @@ const adminHTML = `<!DOCTYPE html>
                     <option value="POST">POST</option>
                     <option value="PUT">PUT</option>
                     <option value="DELETE">DELETE</option>
+                    <option value="HEAD">HEAD</option>
+                    <option value="OPTIONS">OPTIONS</option>
+                    <option value="PATCH">PATCH</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Attack Mode</label>
+                <select id="attackMode">
+                    <option value="standard">Standard (HTTP Flood)</option>
+                    <option value="slowloris">Slowloris (Slow Headers)</option>
+                    <option value="slow-post">Slow POST (R.U.D.Y)</option>
+                    <option value="xmlrpc">XML-RPC Flood</option>
+                    <option value="api-abuse">API Abuse</option>
+                    <option value="cache-bypass">Advanced Cache Bypass</option>
                 </select>
             </div>
             <div class="form-group">
@@ -346,6 +360,21 @@ const adminHTML = `<!DOCTYPE html>
             <div class="form-group" style="display: flex; align-items: center; margin-bottom: 10px;">
                 <input type="checkbox" id="cacheBust" checked style="width: auto; margin-right: 10px;">
                 <label style="margin: 0; cursor: pointer;" for="cacheBust">Cache Busting (Bypass CDN cache)</label>
+            </div>
+            
+            <div class="form-group" style="display: flex; align-items: center; margin-bottom: 10px;">
+                <input type="checkbox" id="randomParams" checked style="width: auto; margin-right: 10px;">
+                <label style="margin: 0; cursor: pointer;" for="randomParams">Random Query Params</label>
+            </div>
+            
+            <div class="form-group" style="display: flex; align-items: center; margin-bottom: 10px;">
+                <input type="checkbox" id="cookieFlood" style="width: auto; margin-right: 10px;">
+                <label style="margin: 0; cursor: pointer;" for="cookieFlood">Cookie Flooding</label>
+            </div>
+            
+            <div class="form-group" style="display: flex; align-items: center; margin-bottom: 10px;">
+                <input type="checkbox" id="rangeHeader" style="width: auto; margin-right: 10px;">
+                <label style="margin: 0; cursor: pointer;" for="rangeHeader">Range Header Attack</label>
             </div>
             
             <div class="form-group">
@@ -526,6 +555,7 @@ const adminHTML = `<!DOCTYPE html>
             const config = {
                 target: document.getElementById('targetUrl').value,
                 method: document.getElementById('method').value,
+                attackMode: document.getElementById('attackMode').value,
                 duration: parseInt(document.getElementById('duration').value),
                 threads: parseInt(document.getElementById('threads').value),
                 delay: parseInt(document.getElementById('delay').value),
@@ -533,6 +563,9 @@ const adminHTML = `<!DOCTYPE html>
                 randomHeaders: document.getElementById('randomHeaders').checked,
                 randomReferer: document.getElementById('randomReferer').checked,
                 cacheBust: document.getElementById('cacheBust').checked,
+                randomParams: document.getElementById('randomParams').checked,
+                cookieFlood: document.getElementById('cookieFlood').checked,
+                rangeHeader: document.getElementById('rangeHeader').checked,
                 postData: document.getElementById('postData').value
             };
             
