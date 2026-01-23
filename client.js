@@ -145,9 +145,17 @@ async function startAttack(config) {
   reportStats();
   
   if (isRunning) {
-    log(`\n✓ Attack completed in ${duration}s`);
-    log(`📈 Final Stats - Sent: ${stats.sent} | Success: ${stats.success} | Failed: ${stats.failed}`);
-    log(`⚡ Average Speed: ${rps} requests/second`);
+    console.log('\n');
+    console.log('╔════════════════════════════════════════╗');
+    console.log('║       ATTACK SUMMARY REPORT            ║');
+    console.log('╠════════════════════════════════════════╣');
+    console.log(`║  Duration:            ${duration.toString().padStart(16)}s ║`);
+    console.log(`║  Requests Sent:       ${stats.sent.toString().padStart(16)} ║`);
+    console.log(`║  Successful:          ${stats.success.toString().padStart(16)} ║`);
+    console.log(`║  Failed:              ${stats.failed.toString().padStart(16)} ║`);
+    console.log(`║  Success Rate:        ${stats.sent > 0 ? ((stats.success/stats.sent)*100).toFixed(1) : '0'}%`.padEnd(41) + '║');
+    console.log(`║  Avg Speed:           ${rps.toString().padStart(12)} req/s ║`);
+    console.log('╚════════════════════════════════════════╝');
     isRunning = false;
     attackStartTime = null;
   }
