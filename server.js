@@ -164,6 +164,71 @@ const adminHTML = `<!DOCTYPE html>
             background: #ff4444;
             color: white;
         }
+        .summary-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 9999;
+            align-items: center;
+            justify-content: center;
+        }
+        .summary-modal.show {
+            display: flex;
+        }
+        .summary-content {
+            background: #1a1a2e;
+            border: 2px solid #00ff41;
+            border-radius: 10px;
+            padding: 30px;
+            max-width: 500px;
+            width: 90%;
+            box-shadow: 0 0 30px rgba(0, 255, 65, 0.5);
+        }
+        .summary-title {
+            color: #00ff41;
+            font-size: 24px;
+            font-weight: bold;
+            text-align: center;
+            margin-bottom: 20px;
+            text-shadow: 0 0 10px #00ff41;
+        }
+        .summary-stat {
+            display: flex;
+            justify-content: space-between;
+            padding: 15px;
+            border-bottom: 1px solid #333;
+            font-size: 16px;
+        }
+        .summary-stat:last-child {
+            border-bottom: none;
+        }
+        .summary-label {
+            color: #aaa;
+        }
+        .summary-value {
+            color: #00ff41;
+            font-weight: bold;
+            font-size: 20px;
+        }
+        .summary-close {
+            margin-top: 20px;
+            width: 100%;
+            padding: 12px;
+            background: #00ff41;
+            color: #0f0f23;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .summary-close:hover {
+            background: #00cc33;
+        }
         .worker-notification {
             position: fixed;
             top: 80px;
@@ -190,6 +255,34 @@ const adminHTML = `<!DOCTYPE html>
 </head>
 <body>
     <div class="connection-status" id="connStatus">DISCONNECTED</div>
+    
+    <!-- Attack Summary Modal -->
+    <div class="summary-modal" id="summaryModal">
+        <div class="summary-content">
+            <div class="summary-title">⚡ ATTACK SUMMARY</div>
+            <div class="summary-stat">
+                <span class="summary-label">Total Requests Sent:</span>
+                <span class="summary-value" id="sumTotalSent">0</span>
+            </div>
+            <div class="summary-stat">
+                <span class="summary-label">Successful:</span>
+                <span class="summary-value" id="sumSuccess" style="color: #00ff41;">0</span>
+            </div>
+            <div class="summary-stat">
+                <span class="summary-label">Failed:</span>
+                <span class="summary-value" id="sumFailed" style="color: #ff4444;">0</span>
+            </div>
+            <div class="summary-stat">
+                <span class="summary-label">Success Rate:</span>
+                <span class="summary-value" id="sumRate">0%</span>
+            </div>
+            <div class="summary-stat">
+                <span class="summary-label">Workers Used:</span>
+                <span class="summary-value" id="sumWorkers">0</span>
+            </div>
+            <button class="summary-close" onclick="closeSummary()">CLOSE</button>
+        </div>
+    </div>
     
     <div class="container">
         <h1>⚡ Stress Test Control Panel</h1>
@@ -353,6 +446,10 @@ const adminHTML = `<!DOCTYPE html>
                             updateWorkerStats(w.id, w.stats);
                         });
                     }
+                    // Show summary report
+                    if (data.summary) {
+                        showSummary(data.summary);
+                    }
                     break;
                 case 'client_disconnected':
                     // Update final stats before removing worker
@@ -481,6 +578,19 @@ const adminHTML = `<!DOCTYPE html>
                 notif.style.transform = 'translateX(400px)';
                 setTimeout(() => notif.remove(), 300);
             }, 3000);
+        }
+
+        function showSummary(summary) {
+            document.getElementById('sumTotalSent').textContent = summary.totalSent;
+            document.getElementById('sumSuccess').textContent = summary.totalSuccess;
+            document.getElementById('sumFailed').textContent = summary.totalFailed;
+            document.getElementById('sumRate').textContent = summary.successRate + '%';
+            document.getElementById('sumWorkers').textContent = summary.workersUsed;
+            document.getElementById('summaryModal').className = 'summary-modal show';
+        }
+
+        function closeSummary() {
+            document.getElementById('summaryModal').className = 'summary-modal';
         }
 
         // Poll for status every 2 seconds
@@ -973,6 +1083,8 @@ function startStressTest(config) {
     return;
   }
   
+  console.log(`[*] Attack started with ${workers.length} workers for ${config.duration}s`);
+  
   workers.forEach(worker => {
     worker.status = 'active';
     worker.stats = { sent: 0, success: 0, failed: 0 };
@@ -987,6 +1099,14 @@ function startStressTest(config) {
     workers: workers.length,
     config: config
   });
+  
+  // Auto-stop after duration and show report
+  setTimeout(() => {
+    if (activeTest) {
+      console.log('[!] Attack duration completed');
+      stopStressTest();
+    }
+  }, config.duration * 1000 + 2000); // Add 2 seconds buffer for final stats
 }
 
 function stopStressTest() {
@@ -1001,6 +1121,25 @@ function stopStressTest() {
     stats: { ...w.stats }
   }));
   
+  // Calculate totals
+  let totalSent = 0, totalSuccess = 0, totalFailed = 0;
+  finalStats.forEach(w => {
+    totalSent += w.stats.sent || 0;
+    totalSuccess += w.stats.success || 0;
+    totalFailed += w.stats.failed || 0;
+  });
+  
+  // Log summary
+  console.log('╔════════════════════════════════════════╗');
+  console.log('║       ATTACK SUMMARY REPORT            ║');
+  console.log('╠════════════════════════════════════════╣');
+  console.log(`║  Total Requests Sent: ${totalSent.toString().padStart(16)} ║`);
+  console.log(`║  Successful:          ${totalSuccess.toString().padStart(16)} ║`);
+  console.log(`║  Failed:              ${totalFailed.toString().padStart(16)} ║`);
+  console.log(`║  Success Rate:        ${totalSent > 0 ? ((totalSuccess/totalSent)*100).toFixed(1) : '0'}%`.padEnd(41) + '║');
+  console.log(`║  Workers Used:        ${workers.length.toString().padStart(16)} ║`);
+  console.log('╚════════════════════════════════════════╝');
+  
   workers.forEach(worker => {
     worker.status = 'idle';
     worker.ws.send(JSON.stringify({ type: 'stop' }));
@@ -1008,7 +1147,14 @@ function stopStressTest() {
   
   broadcastToAdmins({ 
     type: 'test_stopped',
-    finalStats 
+    finalStats,
+    summary: {
+      totalSent,
+      totalSuccess,
+      totalFailed,
+      successRate: totalSent > 0 ? ((totalSuccess/totalSent)*100).toFixed(1) : 0,
+      workersUsed: workers.length
+    }
   });
 }
 
