@@ -1,7 +1,7 @@
 const WebSocket = require('ws');
 const http = require('http');
 
-const PORT = 8080;
+const PORT = process.env.PORT || 8080;
 const clients = new Map();
 let clientIdCounter = 0;
 let activeTest = null;
@@ -908,12 +908,13 @@ function broadcastToAdmins(data) {
   });
 }
 
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`
 ╔════════════════════════════════════════╗
 ║   STRESS TEST SERVER RUNNING           ║
 ╠════════════════════════════════════════╣
 ║  Port: ${PORT}                            ║
+║  Environment: ${process.env.NODE_ENV || 'development'}              ║
 ║  Admin: http://localhost:${PORT}/admin    ║
 ║  Worker: http://localhost:${PORT}/worker  ║
 ╚════════════════════════════════════════╝
