@@ -3,7 +3,7 @@ const https = require('https');
 const http = require('http');
 const dns = require('dns').promises;
 
-const SERVER_URL = 'https://new2-9ho5.onrender.com'; // Change this to your server address
+const SERVER_URL = 'wss://new2-9ho5.onrender.com'; // Change this to your server address
 
 // DNS Cache to bypass DNS throttling
 const dnsCache = new Map();
@@ -360,3 +360,4 @@ process.on('SIGINT', () => {
   process.exit(0);
 
 });
+
