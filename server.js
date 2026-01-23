@@ -164,6 +164,28 @@ const adminHTML = `<!DOCTYPE html>
             background: #ff4444;
             color: white;
         }
+        .worker-notification {
+            position: fixed;
+            top: 80px;
+            right: 20px;
+            padding: 15px 25px;
+            background: #00ff41;
+            color: #0f0f23;
+            border-radius: 8px;
+            font-weight: bold;
+            animation: slideIn 0.3s ease-out;
+            z-index: 1000;
+        }
+        @keyframes slideIn {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
     </style>
 </head>
 <body>
@@ -279,6 +301,7 @@ const adminHTML = `<!DOCTYPE html>
                 document.getElementById('connStatus').textContent = 'CONNECTED';
                 document.getElementById('connStatus').className = 'connection-status connected';
                 ws.send(JSON.stringify({ type: 'identify', role: 'admin' }));
+                // Request status immediately and keep polling
                 requestStatus();
             };
 
@@ -300,6 +323,8 @@ const adminHTML = `<!DOCTYPE html>
                 case 'status':
                     workers = data.workers || [];
                     updateWorkersDisplay();
+                    // Update worker count immediately
+                    document.getElementById('workerCount').textContent = workers.length;
                     break;
                 case 'worker_stats':
                     updateWorkerStats(data.workerId, data.stats);
@@ -332,6 +357,11 @@ const adminHTML = `<!DOCTYPE html>
                     break;
                 case 'workers_cleaned':
                     requestStatus(); // Refresh worker list
+                    break;
+                case 'worker_connected':
+                    // New worker connected - refresh list immediately
+                    showNotification('⚡ New worker connected!');
+                    requestStatus();
                     break;
                 case 'error':
                     alert(data.message);
@@ -417,10 +447,30 @@ const adminHTML = `<!DOCTYPE html>
         function requestStatus() {
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({ type: 'get_status' }));
+            } else if (!ws || ws.readyState === WebSocket.CLOSED) {
+                // Try to reconnect if disconnected
+                connect();
             }
         }
 
-        setInterval(requestStatus, 1000);
+        function showNotification(message) {
+            const notif = document.createElement('div');
+            notif.className = 'worker-notification';
+            notif.textContent = message;
+            document.body.appendChild(notif);
+            
+            setTimeout(() => {
+                notif.style.opacity = '0';
+                notif.style.transform = 'translateX(400px)';
+                setTimeout(() => notif.remove(), 300);
+            }, 3000);
+        }
+
+        // Poll for status every 2 seconds
+        setInterval(() => {
+            requestStatus();
+        }, 2000);
+        
         connect();
     </script>
 </body>
@@ -736,7 +786,31 @@ const server = http.createServer((req, res) => {
 });
 
 // WebSocket Server
-const wss = new WebSocket.Server({ server });
+const wss = new WebSocket.Server({ 
+  server,
+  clientTracking: true,
+  perMessageDeflate: false
+});
+
+// Heartbeat to keep connections alive
+function heartbeat() {
+  this.isAlive = true;
+}
+
+// Check for dead connections every 30 seconds
+const heartbeatInterval = setInterval(() => {
+  wss.clients.forEach((ws) => {
+    if (ws.isAlive === false) {
+      return ws.terminate();
+    }
+    ws.isAlive = false;
+    ws.ping();
+  });
+}, 30000);
+
+wss.on('close', () => {
+  clearInterval(heartbeatInterval);
+});
 
 // Cleanup dead workers every 5 seconds
 setInterval(() => {
@@ -758,6 +832,9 @@ setInterval(() => {
 }, 5000);
 
 wss.on('connection', (ws) => {
+  ws.isAlive = true;
+  ws.on('pong', heartbeat);
+  
   const clientId = ++clientIdCounter;
   const clientInfo = {
     id: clientId,
@@ -780,8 +857,13 @@ wss.on('connection', (ws) => {
         
         if (data.role === 'admin') {
           sendStatus(ws);
-        } else {
+        } else if (data.role === 'worker') {
           ws.send(JSON.stringify({ type: 'ready' }));
+          // Notify all admins that a new worker connected
+          broadcastToAdmins({
+            type: 'worker_connected',
+            workerId: clientId
+          });
         }
       }
       
