@@ -294,7 +294,12 @@ const adminHTML = `<!DOCTYPE html>
         let workers = [];
 
         function connect() {
-            ws = new WebSocket('ws://' + window.location.host);
+            // Use correct WebSocket protocol based on page protocol
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = protocol + '//' + window.location.host;
+            
+            console.log('Connecting to:', wsUrl);
+            ws = new WebSocket(wsUrl);
             
             ws.onopen = () => {
                 console.log('Connected to server');
@@ -307,6 +312,7 @@ const adminHTML = `<!DOCTYPE html>
 
             ws.onmessage = (event) => {
                 const data = JSON.parse(event.data);
+                console.log('Received message:', data.type, data);
                 handleMessage(data);
             };
 
@@ -319,8 +325,11 @@ const adminHTML = `<!DOCTYPE html>
         }
 
         function handleMessage(data) {
+            console.log('Handling message type:', data.type);
+            
             switch(data.type) {
                 case 'status':
+                    console.log('Status received - workers:', data.workers);
                     workers = data.workers || [];
                     updateWorkersDisplay();
                     // Update worker count immediately
@@ -379,7 +388,15 @@ const adminHTML = `<!DOCTYPE html>
 
         function updateWorkersDisplay() {
             const grid = document.getElementById('workersGrid');
-            document.getElementById('workerCount').textContent = workers.length;
+            const workerCount = workers.length;
+            document.getElementById('workerCount').textContent = workerCount;
+            
+            console.log('Updating display with', workerCount, 'workers:', workers);
+            
+            if (workerCount === 0) {
+                grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: #666; padding: 40px;">No workers connected. Open /worker page or run node client.js</div>';
+                return;
+            }
             
             let totalSent = 0, totalSuccess = 0, totalFailed = 0;
             
@@ -997,18 +1014,25 @@ function stopStressTest() {
 
 function sendStatus(ws) {
   const workers = Array.from(clients.values())
-    .filter(c => c.type === 'worker')
+    .filter(c => c.type === 'worker' && c.ws.readyState === WebSocket.OPEN)
     .map(c => ({
       id: c.id,
       status: c.status,
       stats: c.stats
     }));
   
-  ws.send(JSON.stringify({
+  const message = {
     type: 'status',
     workers: workers,
     activeTest: activeTest
-  }));
+  };
+  
+  try {
+    ws.send(JSON.stringify(message));
+    console.log(`[→] Sent status to admin: ${workers.length} workers`);
+  } catch (e) {
+    console.error('[!] Failed to send status:', e.message);
+  }
 }
 
 function broadcastToAdmins(data) {
