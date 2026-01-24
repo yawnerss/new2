@@ -320,6 +320,7 @@ const adminHTML = `<!DOCTYPE html>
                 <label>Attack Mode</label>
                 <select id="attackMode">
                     <option value="standard">Standard (HTTP Flood)</option>
+                    <option value="http2-rapid-reset">HTTP/2 Rapid Reset (CVE-2023-44487)</option>
                     <option value="slowloris">Slowloris (Slow Headers)</option>
                     <option value="slow-post">Slow POST (R.U.D.Y)</option>
                     <option value="xmlrpc">XML-RPC Flood</option>
