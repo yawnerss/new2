@@ -84,6 +84,7 @@ let currentProxy = null;
 let proxyRequestCount = 0;
 let deadProxies = new Set();
 let currentProxyIndex = 0;
+let lastProxyLogTime = 0;
 
 function connect() {
   console.log('[*] Connecting to command server...');
@@ -347,9 +348,13 @@ function rotateProxy() {
     attempts++;
   }
   
-  // All proxies dead, reset
+  // All proxies dead, reset (only log once)
+  const now = Date.now();
+  if (now - lastProxyLogTime > 5000) {
+    log('⚠ All proxies failed, resetting dead proxy list and retrying');
+    lastProxyLogTime = now;
+  }
   deadProxies.clear();
-  log('⚠ All proxies failed, resetting dead proxy list');
   currentProxyIndex = 0;
   return proxies[0];
 }
@@ -357,8 +362,24 @@ function rotateProxy() {
 function markProxyDead(proxy) {
   if (!proxy) return;
   const key = `${proxy.host}:${proxy.port}`;
-  deadProxies.add(key);
-  log(`❌ Proxy dead: ${key} (${deadProxies.size}/${proxies.length} failed)`);
+  
+  // Only log if this is a NEW dead proxy (not already marked)
+  if (!deadProxies.has(key)) {
+    deadProxies.add(key);
+    const aliveCount = proxies.length - deadProxies.size;
+    
+    // Throttle logging - only log every 2 seconds max
+    const now = Date.now();
+    if (now - lastProxyLogTime > 2000) {
+      log(`❌ Proxy dead: ${key} (${aliveCount} alive / ${proxies.length} total)`);
+      lastProxyLogTime = now;
+    }
+    
+    // If all proxies are dead, always log
+    if (aliveCount === 0) {
+      log(`⚠ All ${proxies.length} proxies are dead!`);
+    }
+  }
 }
 
 function getRandomHeaders(config) {
@@ -724,7 +745,14 @@ function updateDisplay() {
   const successRate = stats.sent > 0 ? ((stats.success / stats.sent) * 100).toFixed(1) : 0;
   const rps = elapsed > 0 ? (stats.sent / elapsed).toFixed(0) : 0;
   
-  process.stdout.write(`\r[📊] Sent: ${stats.sent} | Success: ${stats.success} | Failed: ${stats.failed} | Rate: ${successRate}% | RPS: ${rps}     `);
+  // Add proxy status if using proxies
+  let proxyStatus = '';
+  if (proxies.length > 0) {
+    const alive = proxies.length - deadProxies.size;
+    proxyStatus = ` | Proxies: ${alive}/${proxies.length}`;
+  }
+  
+  process.stdout.write(`\r[📊] Sent: ${stats.sent} | Success: ${stats.success} | Failed: ${stats.failed} | Rate: ${successRate}% | RPS: ${rps}${proxyStatus}     `);
 }
 
 function log(message) {
