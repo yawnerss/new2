@@ -355,7 +355,7 @@ const adminHTML = `<!DOCTYPE html>
                 <input type="number" id="delay" value="1" min="0">
             </div>
             
-            <h3 style="margin: 25px 0 15px; color: #00ff41; font-size: 16px;">Bypass Methods</h3>
+            <h3 style="margin: 25px 0 15px; color: #00ff41; font-size: 16px;">🔥 Advanced Bypass Methods (High D-Stat)</h3>
             
             <div class="form-group" style="display: flex; align-items: center; margin-bottom: 10px;">
                 <input type="checkbox" id="bypassDNS" style="width: auto; margin-right: 10px;">
@@ -374,7 +374,7 @@ const adminHTML = `<!DOCTYPE html>
             
             <div class="form-group" style="display: flex; align-items: center; margin-bottom: 10px;">
                 <input type="checkbox" id="cacheBust" style="width: auto; margin-right: 10px;">
-                <label style="margin: 0; cursor: pointer;" for="cacheBust">Cache Busting (Bypass CDN cache)</label>
+                <label style="margin: 0; cursor: pointer;" for="cacheBust">Cache Busting (Bypass CDN)</label>
             </div>
             
             <div class="form-group" style="display: flex; align-items: center; margin-bottom: 10px;">
@@ -390,6 +390,31 @@ const adminHTML = `<!DOCTYPE html>
             <div class="form-group" style="display: flex; align-items: center; margin-bottom: 10px;">
                 <input type="checkbox" id="rangeHeader" style="width: auto; margin-right: 10px;">
                 <label style="margin: 0; cursor: pointer;" for="rangeHeader">Range Header Attack</label>
+            </div>
+            
+            <div class="form-group" style="display: flex; align-items: center; margin-bottom: 10px;">
+                <input type="checkbox" id="connectionExhaustion" style="width: auto; margin-right: 10px;">
+                <label style="margin: 0; cursor: pointer;" for="connectionExhaustion">🔥 Connection Exhaustion (High D-Stat)</label>
+            </div>
+            
+            <div class="form-group" style="display: flex; align-items: center; margin-bottom: 10px;">
+                <input type="checkbox" id="slowRead" style="width: auto; margin-right: 10px;">
+                <label style="margin: 0; cursor: pointer;" for="slowRead">🔥 Slow Read Attack (Server Hold)</label>
+            </div>
+            
+            <div class="form-group" style="display: flex; align-items: center; margin-bottom: 10px;">
+                <input type="checkbox" id="randomPath" style="width: auto; margin-right: 10px;">
+                <label style="margin: 0; cursor: pointer;" for="randomPath">🔥 Random Path Flood (404 Spam)</label>
+            </div>
+            
+            <div class="form-group" style="display: flex; align-items: center; margin-bottom: 10px;">
+                <input type="checkbox" id="postDataFlood" style="width: auto; margin-right: 10px;">
+                <label style="margin: 0; cursor: pointer;" for="postDataFlood">🔥 POST Data Flood (Upload Spam)</label>
+            </div>
+            
+            <div class="form-group" style="display: flex; align-items: center; margin-bottom: 10px;">
+                <input type="checkbox" id="socketReuse" style="width: auto; margin-right: 10px;">
+                <label style="margin: 0; cursor: pointer;" for="socketReuse">🔥 Socket Reuse Attack (Max Connections)</label>
             </div>
             
             <div class="form-group" style="display: flex; align-items: center; margin-bottom: 10px;">
@@ -603,6 +628,11 @@ const adminHTML = `<!DOCTYPE html>
                 randomParams: document.getElementById('randomParams').checked,
                 cookieFlood: document.getElementById('cookieFlood').checked,
                 rangeHeader: document.getElementById('rangeHeader').checked,
+                connectionExhaustion: document.getElementById('connectionExhaustion').checked,
+                slowRead: document.getElementById('slowRead').checked,
+                randomPath: document.getElementById('randomPath').checked,
+                postDataFlood: document.getElementById('postDataFlood').checked,
+                socketReuse: document.getElementById('socketReuse').checked,
                 useProxy: document.getElementById('useProxy').checked,
                 rotateUserAgent: document.getElementById('rotateUserAgent').checked,
                 postData: document.getElementById('postData').value,
