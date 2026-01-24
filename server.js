@@ -343,7 +343,7 @@ const adminHTML = `<!DOCTYPE html>
             </div>
             <div class="form-group">
                 <label>Attack Duration (seconds)</label>
-                <input type="number" id="duration" value="3000000000000000000" min="1">
+                <input type="number" id="duration" value="30" min="1">
             </div>
             <div class="form-group">
                 <label>Threads per Worker</label>
@@ -1293,5 +1293,6 @@ server.listen(PORT, '0.0.0.0', () => {
 ╚════════════════════════════════════════╝
   `);
 });
+
 
 
