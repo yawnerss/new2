@@ -351,33 +351,33 @@ const adminHTML = `<!DOCTYPE html>
             </div>
             <div class="form-group">
                 <label>Delay between requests (ms)</label>
-                <input type="number" id="delay" value="0" min="0">
+                <input type="number" id="delay" value="1" min="0">
             </div>
             
             <h3 style="margin: 25px 0 15px; color: #00ff41; font-size: 16px;">Bypass Methods</h3>
             
             <div class="form-group" style="display: flex; align-items: center; margin-bottom: 10px;">
-                <input type="checkbox" id="bypassDNS" checked style="width: auto; margin-right: 10px;">
+                <input type="checkbox" id="bypassDNS" style="width: auto; margin-right: 10px;">
                 <label style="margin: 0; cursor: pointer;" for="bypassDNS">DNS Bypass (Pre-resolve IPs)</label>
             </div>
             
             <div class="form-group" style="display: flex; align-items: center; margin-bottom: 10px;">
-                <input type="checkbox" id="randomHeaders" checked style="width: auto; margin-right: 10px;">
+                <input type="checkbox" id="randomHeaders" style="width: auto; margin-right: 10px;">
                 <label style="margin: 0; cursor: pointer;" for="randomHeaders">Random Headers (Anti-fingerprint)</label>
             </div>
             
             <div class="form-group" style="display: flex; align-items: center; margin-bottom: 10px;">
-                <input type="checkbox" id="randomReferer" checked style="width: auto; margin-right: 10px;">
+                <input type="checkbox" id="randomReferer" style="width: auto; margin-right: 10px;">
                 <label style="margin: 0; cursor: pointer;" for="randomReferer">Random Referer (Spoof source)</label>
             </div>
             
             <div class="form-group" style="display: flex; align-items: center; margin-bottom: 10px;">
-                <input type="checkbox" id="cacheBust" checked style="width: auto; margin-right: 10px;">
+                <input type="checkbox" id="cacheBust" style="width: auto; margin-right: 10px;">
                 <label style="margin: 0; cursor: pointer;" for="cacheBust">Cache Busting (Bypass CDN cache)</label>
             </div>
             
             <div class="form-group" style="display: flex; align-items: center; margin-bottom: 10px;">
-                <input type="checkbox" id="randomParams" checked style="width: auto; margin-right: 10px;">
+                <input type="checkbox" id="randomParams" style="width: auto; margin-right: 10px;">
                 <label style="margin: 0; cursor: pointer;" for="randomParams">Random Query Params</label>
             </div>
             
@@ -397,7 +397,7 @@ const adminHTML = `<!DOCTYPE html>
             </div>
             
             <div class="form-group" style="display: flex; align-items: center; margin-bottom: 10px;">
-                <input type="checkbox" id="rotateUserAgent" checked style="width: auto; margin-right: 10px;">
+                <input type="checkbox" id="rotateUserAgent" style="width: auto; margin-right: 10px;">
                 <label style="margin: 0; cursor: pointer;" for="rotateUserAgent">Rotate User-Agent (from headers.txt)</label>
             </div>
             
