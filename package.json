@@ -3,6 +3,7 @@
     "axios": "^1.7.9",
     "colors": "^1.4.0",
     "crypto-js": "^4.2.0",
+    "express": "^4.19.2",
     "geoip-lite": "^1.4.10",
     "header-generator": "^2.1.62",
     "hpack": "^1.0.0",
