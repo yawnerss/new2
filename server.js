@@ -5,7 +5,7 @@ const axios = require('axios');
 const app = express();
 app.use(express.json());
 
-const port = process.env.PORT || 5552;
+const port = process.env.PORT || 5553;
 
 // Store connected bots with auto-approval
 let connectedBots = [];

