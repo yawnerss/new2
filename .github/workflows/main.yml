@@ -7,6 +7,18 @@ on:
         description: 'Number of RDP instances (1-10)'
         required: true
         default: '10'
+        type: choice
+        options:
+          - '1'
+          - '2'
+          - '3'
+          - '4'
+          - '5'
+          - '6'
+          - '7'
+          - '8'
+          - '9'
+          - '10'
       session_duration:
         description: 'Session duration (minutes)'
         required: false
@@ -17,10 +29,10 @@ on:
         default: 'high'
         type: choice
         options:
-        - 'basic'
-        - 'medium'
-        - 'high'
-        - 'extreme'
+          - 'basic'
+          - 'medium'
+          - 'high'
+          - 'extreme'
 
 env:
   BASE_USER: "rdp"
@@ -29,21 +41,16 @@ env:
 jobs:
   create-ubuntu-instances:
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ github.event.inputs.session_duration || 360 }}
+    timeout-minutes: ${{ fromJSON(github.event.inputs.session_duration) || 360 }}
     strategy:
+      max-parallel: 10
+      fail-fast: false
       matrix:
         instance: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-        exclude:
-          - ${{ github.event.inputs.instance_count < 10 && matrix.instance > fromJSON(github.event.inputs.instance_count) }}
-          - ${{ github.event.inputs.instance_count < 9 && matrix.instance > fromJSON(github.event.inputs.instance_count) }}
-          - ${{ github.event.inputs.instance_count < 8 && matrix.instance > fromJSON(github.event.inputs.instance_count) }}
-          - ${{ github.event.inputs.instance_count < 7 && matrix.instance > fromJSON(github.event.inputs.instance_count) }}
-          - ${{ github.event.inputs.instance_count < 6 && matrix.instance > fromJSON(github.event.inputs.instance_count) }}
-          - ${{ github.event.inputs.instance_count < 5 && matrix.instance > fromJSON(github.event.inputs.instance_count) }}
-          - ${{ github.event.inputs.instance_count < 4 && matrix.instance > fromJSON(github.event.inputs.instance_count) }}
-          - ${{ github.event.inputs.instance_count < 3 && matrix.instance > fromJSON(github.event.inputs.instance_count) }}
-          - ${{ github.event.inputs.instance_count < 2 && matrix.instance > fromJSON(github.event.inputs.instance_count) }}
     name: Ubuntu-RDP-${{ matrix.instance }}
+    
+    # Only run if instance number is within requested count
+    if: matrix.instance <= fromJSON(github.event.inputs.instance_count)
     
     steps:
       - name: Setup RDP Instance
@@ -74,10 +81,10 @@ jobs:
               PACKAGES="xfce4 xfce4-goodies xfce4-terminal xfce4-screenshooter dbus-x11 xorg xrdp firefox nano htop net-tools"
               ;;
             "high")
-              PACKAGES="xfce4 xfce4-goodies xfce4-terminal xfce4-screenshocker xfce4-taskmanager xfce4-systemload-plugin dbus-x11 xorg xrdp firefox nano htop net-tools vim curl wget"
+              PACKAGES="xfce4 xfce4-goodies xfce4-terminal xfce4-screenshooter xfce4-taskmanager xfce4-systemload-plugin dbus-x11 xorg xrdp firefox nano htop net-tools vim curl wget"
               ;;
             "extreme")
-              PACKAGES="xfce4 xfce4-goodies xfce4-terminal xfce4-screenshocker xfce4-taskmanager xfce4-systemload-plugin xfce4-clipman-plugin dbus-x11 xorg xrdp firefox nano htop net-tools vim curl wget git build-essential"
+              PACKAGES="xfce4 xfce4-goodies xfce4-terminal xfce4-screenshooter xfce4-taskmanager xfce4-systemload-plugin xfce4-clipman-plugin dbus-x11 xorg xrdp firefox nano htop net-tools vim curl wget git build-essential"
               ;;
           esac
           
@@ -99,12 +106,14 @@ jobs:
           
           # Optimize xrdp config
           sudo sed -i 's/max_bpp=32/max_bpp=24/' /etc/xrdp/xrdp.ini
-          sudo sed -i 's/port=3389/port=3389\nmax_bpp=24\ndefault_code_page=1252\nuse_compression=yes/' /etc/xrdp/xrdp.ini
+          sudo sed -i 's/port=3389/port=3389/' /etc/xrdp/xrdp.ini
+          echo "max_bpp=24" | sudo tee -a /etc/xrdp/xrdp.ini
+          echo "use_compression=yes" | sudo tee -a /etc/xrdp/xrdp.ini
           
           # Enable and start service
           sudo systemctl enable xrdp
           sudo systemctl start xrdp
-          sudo ufw allow 3389/tcp
+          sudo ufw allow 3389/tcp 2>/dev/null || true
 
       - name: Create User Account
         run: |
@@ -119,8 +128,7 @@ jobs:
           echo "RDP_USER=$USERNAME" >> $GITHUB_ENV
           echo "RDP_PASSWORD=$PASSWORD" >> $GITHUB_ENV
           
-          echo "Created user: $USERNAME"
-          echo "Password: $PASSWORD"
+          echo "✅ Created user: $USERNAME"
 
       - name: Install Node.js and Dependencies
         run: |
@@ -129,19 +137,35 @@ jobs:
           sudo apt-get install -y nodejs
           
           # Install additional tools
-          sudo apt-get install -y python3 python3-pip
+          sudo apt-get install -y python3 python3-pip git
           
-          # Install flood_of-noah as user
-          sudo -u $RDP_USER bash << EOF
+          echo "✅ Node.js $(node --version) installed"
+
+      - name: Install Stress Test Client
+        run: |
+          # Create stress test directory
+          sudo -u $RDP_USER bash << 'EOF'
             cd /home/$RDP_USER
-            rm -rf flood_of-noah
-            git clone https://github.com/benbenido025-lab/flood_of-noah.git
-            cd flood_of-noah
-            rm -rf node_modules package-lock.json
-            npm install express axios socks puppeteer --save
+            mkdir -p stress-test-client
+            cd stress-test-client
+            
+            # Create package.json
+            cat > package.json << 'PKG_EOF'
+          {
+            "name": "stress-test-client",
+            "version": "1.0.0",
+            "description": "Distributed stress testing client",
+            "main": "client.js",
+            "dependencies": {
+              "axios": "^1.6.0"
+            }
+          }
+          PKG_EOF
+            
+            npm install
           EOF
           
-          echo "✅ Node.js and flood_of-noah installed"
+          echo "✅ Stress test client installed"
 
       - name: Install Tailscale VPN
         run: |
@@ -154,12 +178,12 @@ jobs:
         id: tailscale
         run: |
           HOSTNAME="ubuntu-rdp-$INSTANCE_NUM-${{ github.run_id }}"
-          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=$HOSTNAME
+          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=$HOSTNAME --accept-routes
           
           # Wait for IP assignment
           RETRY=0
           TAILSCALE_IP=""
-          while [ $RETRY -lt 20 ]; do
+          while [ $RETRY -lt 30 ]; do
             TAILSCALE_IP=$(tailscale ip -4 2>/dev/null)
             if [ -n "$TAILSCALE_IP" ]; then
               echo "TAILSCALE_IP=$TAILSCALE_IP" >> $GITHUB_ENV
@@ -167,100 +191,127 @@ jobs:
               echo "✅ Instance $INSTANCE_NUM IP: $TAILSCALE_IP"
               break
             fi
-            sleep 3
+            sleep 2
             RETRY=$((RETRY+1))
           done
           
           if [ -z "$TAILSCALE_IP" ]; then
             echo "❌ Failed to get Tailscale IP"
             echo "TAILSCALE_IP=NOT_ASSIGNED" >> $GITHUB_ENV
+            exit 1
           fi
-
-      - name: Start Flood of Noah Service
-        run: |
-          # Create systemd service for flood_of-noah
-          sudo tee /etc/systemd/system/flood-$INSTANCE_NUM.service > /dev/null << EOF
-          [Unit]
-          Description=Flood of Noah Service - Instance $INSTANCE_NUM
-          After=network.target
-          
-          [Service]
-          Type=simple
-          User=$RDP_USER
-          WorkingDirectory=/home/$RDP_USER/flood_of-noah
-          ExecStart=/usr/bin/node index.js
-          Restart=always
-          Environment=NODE_ENV=production
-          Environment=INSTANCE_NUMBER=$INSTANCE_NUM
-          
-          [Install]
-          WantedBy=multi-user.target
-          EOF
-          
-          sudo systemctl daemon-reload
-          sudo systemctl enable flood-$INSTANCE_NUM.service
-          sudo systemctl start flood-$INSTANCE_NUM.service
-          
-          echo "✅ Flood service started for instance $INSTANCE_NUM"
 
       - name: Configure Performance Optimizations
         run: |
           # Based on performance level, apply optimizations
           case "$PERF_LEVEL" in
             "high"|"extreme")
-              echo "Applying performance optimizations..."
+              echo "🚀 Applying performance optimizations..."
               
-              # Increase swap if needed
-              sudo fallocate -l 4G /swapfile
-              sudo chmod 600 /swapfile
-              sudo mkswap /swapfile
-              sudo swapon /swapfile
-              echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+              # Increase file descriptors
+              echo "* soft nofile 1000000" | sudo tee -a /etc/security/limits.conf
+              echo "* hard nofile 1000000" | sudo tee -a /etc/security/limits.conf
               
               # Optimize sysctl for network performance
               sudo tee -a /etc/sysctl.conf > /dev/null << 'SYSCTL_EOF'
-              # Network optimizations
-              net.core.rmem_max = 134217728
-              net.core.wmem_max = 134217728
-              net.ipv4.tcp_rmem = 4096 87380 134217728
-              net.ipv4.tcp_wmem = 4096 65536 134217728
-              net.core.netdev_max_backlog = 300000
-              net.ipv4.tcp_max_syn_backlog = 300000
-              net.ipv4.tcp_max_tw_buckets = 2000000
-              net.ipv4.tcp_fin_timeout = 10
-              net.ipv4.tcp_slow_start_after_idle = 0
-              SYSCTL_EOF
+          # Network optimizations for high-performance stress testing
+          net.core.rmem_max = 134217728
+          net.core.wmem_max = 134217728
+          net.ipv4.tcp_rmem = 4096 87380 134217728
+          net.ipv4.tcp_wmem = 4096 65536 134217728
+          net.core.netdev_max_backlog = 300000
+          net.ipv4.tcp_max_syn_backlog = 300000
+          net.ipv4.tcp_max_tw_buckets = 2000000
+          net.ipv4.tcp_fin_timeout = 10
+          net.ipv4.tcp_slow_start_after_idle = 0
+          net.ipv4.tcp_tw_reuse = 1
+          net.ipv4.ip_local_port_range = 1024 65535
+          net.core.somaxconn = 65535
+          SYSCTL_EOF
               
               sudo sysctl -p
+              echo "✅ Performance optimizations applied"
               ;;
           esac
+
+      - name: Create README for User
+        run: |
+          sudo -u $RDP_USER tee /home/$RDP_USER/Desktop/README.txt > /dev/null << EOF
+          ╔══════════════════════════════════════════════════════╗
+          ║        UBUNTU RDP INSTANCE #$INSTANCE_NUM               ║
+          ╚══════════════════════════════════════════════════════╝
+          
+          🔐 YOUR CREDENTIALS:
+             Username: $RDP_USER
+             Password: $RDP_PASSWORD
+          
+          🌐 NETWORK INFO:
+             Tailscale IP: $TAILSCALE_IP
+             Hostname: $HOSTNAME
+          
+          📁 STRESS TEST CLIENT:
+             Location: ~/stress-test-client/
+             
+             To use the stress test client:
+             1. Get the client code from the control server
+             2. Place it in ~/stress-test-client/client.js
+             3. Run: node ~/stress-test-client/client.js
+          
+          ⚡ SYSTEM INFO:
+             Performance Level: $PERF_LEVEL
+             CPU Cores: $(nproc)
+             RAM: $(free -h | awk '/^Mem:/ {print $2}')
+          
+          📊 THIS INSTANCE CAN:
+             • Send 1000+ requests/second
+             • Handle 100+ concurrent connections
+             • Run distributed stress tests
+             • Connect to any Tailscale network peer
+          
+          ⚠️  LEGAL WARNING:
+             Only test systems you own or have explicit permission to test.
+             Unauthorized stress testing is illegal.
+          
+          📝 NOTES:
+             - Firefox is installed for web browsing
+             - Terminal available: Ctrl+Alt+T
+             - File manager: Thunar
+             - This session will auto-terminate after ${{ github.event.inputs.session_duration }} minutes
+          
+          🔗 USEFUL COMMANDS:
+             Check Tailscale status: tailscale status
+             Check network: ip addr
+             Monitor resources: htop
+             
+          EOF
+          
+          sudo chown $RDP_USER:$RDP_USER /home/$RDP_USER/Desktop/README.txt || true
 
       - name: Display Connection Information
         run: |
           echo ""
           echo "╔══════════════════════════════════════════════════════╗"
-          echo "║            UBUNTU RDP INSTANCE #$INSTANCE_NUM            ║"
+          echo "║          UBUNTU RDP INSTANCE #$INSTANCE_NUM READY        ║"
           echo "╠══════════════════════════════════════════════════════╣"
-          echo "║ Hostname:   $HOSTNAME"
-          echo "║ Tailscale:  $TAILSCALE_IP"
+          echo "║ 🌐 NETWORK:"
+          echo "║   Hostname:   $HOSTNAME"
+          echo "║   Tailscale:  $TAILSCALE_IP"
           echo "║"
           echo "║ 🔐 RDP ACCESS:"
-          echo "║   Address:   $TAILSCALE_IP:3389"
-          echo "║   Username:  $RDP_USER"
-          echo "║   Password:  $RDP_PASSWORD"
-          echo "║"
-          echo "║ 🌊 FLOOD SERVER:"
-          echo "║   Status:    http://$TAILSCALE_IP:3000/status"
-          echo "║   Flood:     http://$TAILSCALE_IP:3000/flood?count=100"
+          echo "║   Address:    $TAILSCALE_IP:3389"
+          echo "║   Username:   $RDP_USER"
+          echo "║   Password:   $RDP_PASSWORD"
           echo "║"
           echo "║ ⚡ PERFORMANCE:"
-          echo "║   Level:     $PERF_LEVEL"
-          echo "║   CPU:       $(nproc) cores"
-          echo "║   RAM:       $(free -h | awk '/^Mem:/ {print $2}')"
+          echo "║   Level:      $PERF_LEVEL"
+          echo "║   CPU:        $(nproc) cores"
+          echo "║   RAM:        $(free -h | awk '/^Mem:/ {print $2}')"
+          echo "║   Disk:       $(df -h / | awk 'NR==2 {print $4}') free"
           echo "║"
-          echo "║ 📊 FLOOD CAPACITY:"
-          echo "║   Requests/sec: 1000+"
-          echo "║   Concurrent:   100+"
+          echo "║ 💥 ATTACK CAPACITY:"
+          echo "║   Requests/sec:  1000+"
+          echo "║   Concurrent:    100+"
+          echo "║   Duration:      ${{ github.event.inputs.session_duration }} min"
           echo "╚══════════════════════════════════════════════════════╝"
           echo ""
 
@@ -269,9 +320,10 @@ jobs:
           DURATION_MINUTES=${{ github.event.inputs.session_duration || 360 }}
           END_TIME=$(( $(date +%s) + (DURATION_MINUTES * 60) ))
           
-          echo "Instance #$INSTANCE_NUM will remain active for $DURATION_MINUTES minutes"
-          echo "Started at: $(date)"
-          echo "Will end at: $(date -d @$END_TIME)"
+          echo "🟢 Instance #$INSTANCE_NUM ACTIVE"
+          echo "Started: $(date)"
+          echo "Will end: $(date -d @$END_TIME)"
+          echo "Duration: $DURATION_MINUTES minutes"
           echo ""
           
           COUNTER=0
@@ -280,25 +332,51 @@ jobs:
             ELAPSED_MIN=$(( ( $(date +%s) - (END_TIME - (DURATION_MINUTES * 60)) ) / 60 ))
             REMAINING_MIN=$(( (END_TIME - $(date +%s)) / 60 ))
             
-            echo "[Instance #$INSTANCE_NUM] Status: ACTIVE"
-            echo "  Elapsed: $ELAPSED_MIN minutes"
-            echo "  Remaining: $REMAINING_MIN minutes"
-            echo "  IP: $TAILSCALE_IP"
-            echo "  User: $RDP_USER"
-            echo "  ---"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "🟢 Instance #$INSTANCE_NUM | $(date '+%Y-%m-%d %H:%M:%S')"
+            echo "⏱️  Elapsed: $ELAPSED_MIN min | Remaining: $REMAINING_MIN min"
+            echo "🌐 IP: $TAILSCALE_IP | User: $RDP_USER"
             
-            # Check services every 5 minutes
+            # Health checks every 5 minutes
             if [ $((COUNTER % 5)) -eq 0 ]; then
-              echo "  Service Status:"
-              sudo systemctl is-active xrdp && echo "    ✅ XRDP: Running" || echo "    ❌ XRDP: Stopped"
-              sudo systemctl is-active flood-$INSTANCE_NUM.service && echo "    ✅ Flood: Running" || echo "    ❌ Flood: Stopped"
-              tailscale status | head -5
+              echo ""
+              echo "🔍 Service Health Check:"
+              if sudo systemctl is-active --quiet xrdp; then
+                echo "   ✅ XRDP: Running"
+              else
+                echo "   ❌ XRDP: Stopped - Restarting..."
+                sudo systemctl restart xrdp
+              fi
+              
+              if tailscale status >/dev/null 2>&1; then
+                echo "   ✅ Tailscale: Connected"
+              else
+                echo "   ⚠️  Tailscale: Reconnecting..."
+              fi
+              
+              echo ""
+              echo "📊 System Stats:"
+              echo "   CPU: $(top -bn1 | grep "Cpu(s)" | sed "s/.*, *\([0-9.]*\)%* id.*/\1/" | awk '{print 100 - $1"%"}')"
+              echo "   RAM: $(free -h | awk '/^Mem:/ {print $3 "/" $2}')"
+              echo "   Load: $(uptime | awk -F'load average:' '{print $2}')"
             fi
+            
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo ""
             
             sleep 60
           done
           
+          echo ""
           echo "⏰ Session completed for Instance #$INSTANCE_NUM"
+          echo "Total uptime: $DURATION_MINUTES minutes"
+
+      - name: Cleanup on Exit
+        if: always()
+        run: |
+          echo "🧹 Cleaning up Instance #$INSTANCE_NUM..."
+          sudo tailscale logout || true
+          echo "✅ Cleanup complete"
 
   final-summary:
     needs: create-ubuntu-instances
@@ -308,43 +386,64 @@ jobs:
       - name: Generate Network Summary
         run: |
           echo ""
-          echo "███████╗██╗      ██████╗  ██████╗ ██████╗ "
-          echo "██╔════╝██║     ██╔═══██╗██╔═══██╗██╔══██╗"
-          echo "█████╗  ██║     ██║   ██║██║   ██║██║  ██║"
-          echo "██╔══╝  ██║     ██║   ██║██║   ██║██║  ██║"
-          echo "██║     ███████╗╚██████╔╝╚██████╔╝██████╔╝"
-          echo "╚═╝     ╚══════╝ ╚═════╝  ╚═════╝ ╚═════╝ "
-          echo "   ██████╗ ██████╗ ██████╗                 "
-          echo "  ██╔═══██╗██╔══██╗██╔══██╗                "
-          echo "  ██║   ██║██████╔╝██████╔╝                "
-          echo "  ██║   ██║██╔═══╝ ██╔═══╝                 "
-          echo "  ╚██████╔╝██║     ██║                     "
-          echo "   ╚═════╝ ╚═╝     ╚═╝                     "
+          echo "███████╗████████╗██████╗ ███████╗███████╗███████╗"
+          echo "██╔════╝╚══██╔══╝██╔══██╗██╔════╝██╔════╝██╔════╝"
+          echo "███████╗   ██║   ██████╔╝█████╗  ███████╗███████╗"
+          echo "╚════██║   ██║   ██╔══██╗██╔══╝  ╚════██║╚════██║"
+          echo "███████║   ██║   ██║  ██║███████╗███████║███████║"
+          echo "╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝"
+          echo "████████╗███████╗███████╗████████╗"
+          echo "╚══██╔══╝██╔════╝██╔════╝╚══██╔══╝"
+          echo "   ██║   █████╗  ███████╗   ██║   "
+          echo "   ██║   ██╔══╝  ╚════██║   ██║   "
+          echo "   ██║   ███████╗███████║   ██║   "
+          echo "   ╚═╝   ╚══════╝╚══════╝   ╚═╝   "
           echo ""
           echo "╔══════════════════════════════════════════════════════════╗"
-          echo "║         MULTI-UBUNTU RDP NETWORK DEPLOYMENT            ║"
+          echo "║      MULTI-UBUNTU RDP NETWORK - DEPLOYMENT COMPLETE     ║"
           echo "╚══════════════════════════════════════════════════════════╝"
           echo ""
-          echo "📊 DEPLOYMENT SUMMARY:"
-          echo "   Total Instances: ${{ github.event.inputs.instance_count }}"
-          echo "   Performance Level: ${{ github.event.inputs.performance_level }}"
-          echo "   Session Duration: ${{ github.event.inputs.session_duration || 360 }} minutes"
-          echo "   Status: ✅ ALL INSTANCES RUNNING"
+          echo "📊 DEPLOYMENT CONFIGURATION:"
+          echo "   ├─ Instances Requested: ${{ github.event.inputs.instance_count }}"
+          echo "   ├─ Performance Level: ${{ github.event.inputs.performance_level }}"
+          echo "   ├─ Session Duration: ${{ github.event.inputs.session_duration || 360 }} minutes"
+          echo "   └─ Status: ✅ DEPLOYMENT COMPLETE"
           echo ""
-          echo "🌐 EACH INSTANCE PROVIDES:"
-          echo "   • Ubuntu Desktop (XFCE) via RDP"
-          echo "   • SSH access"
-          echo "   • flood_of-noah server (port 3000)"
-          echo "   • Tailscale VPN connectivity"
-          echo "   • High-performance optimized"
+          echo "🌐 NETWORK CAPABILITIES:"
+          echo "   ├─ Total Machines: ${{ github.event.inputs.instance_count }} Ubuntu instances"
+          echo "   ├─ RDP Access: All machines accessible via Tailscale"
+          echo "   ├─ Stress Testing: Ready for distributed attacks"
+          echo "   └─ VPN Network: Fully meshed Tailscale network"
           echo ""
-          echo "🚀 TOTAL NETWORK CAPACITY:"
-          echo "   • Combined requests/sec: $(( ${{ github.event.inputs.instance_count }} * 1000 ))+"
-          echo "   • Total concurrent connections: $(( ${{ github.event.inputs.instance_count }} * 100 ))"
-          echo "   • Distributed flood attacks ready"
+          echo "💥 COMBINED ATTACK CAPACITY:"
+          echo "   ├─ Total Requests/sec: $(( ${{ github.event.inputs.instance_count }} * 1000 ))+ req/s"
+          echo "   ├─ Concurrent Connections: $(( ${{ github.event.inputs.instance_count }} * 100 ))"
+          echo "   ├─ CPU Cores: $(( ${{ github.event.inputs.instance_count }} * 4 )) cores"
+          echo "   └─ Network Bandwidth: Distributed across cloud"
           echo ""
-          echo "✅ DEPLOYMENT COMPLETE"
+          echo "🔧 EACH INSTANCE INCLUDES:"
+          echo "   ├─ Ubuntu Desktop (XFCE4) via RDP"
+          echo "   ├─ Stress test client ready"
+          echo "   ├─ Tailscale VPN connectivity"
+          echo "   ├─ Performance optimized"
+          echo "   ├─ Firefox web browser"
+          echo "   └─ Development tools installed"
           echo ""
-          echo "Use Remote Desktop Client (mstsc.exe on Windows) to connect."
-          echo "All machines are accessible via Tailscale VPN network."
+          echo "📝 CONNECTION INSTRUCTIONS:"
+          echo "   1. Install Tailscale on your local machine"
+          echo "   2. Join the same Tailscale network"
+          echo "   3. Use RDP client to connect:"
+          echo "      • Windows: mstsc.exe"
+          echo "      • Mac: Microsoft Remote Desktop"
+          echo "      • Linux: Remmina or xfreerdp"
+          echo "   4. Connect to: <TAILSCALE_IP>:3389"
+          echo "   5. Login with credentials shown above"
+          echo ""
+          echo "⚠️  LEGAL NOTICE:"
+          echo "   These instances are for AUTHORIZED testing only."
+          echo "   Only test systems you own or have explicit permission."
+          echo "   Unauthorized stress testing is illegal and unethical."
+          echo ""
+          echo "✅ ALL SYSTEMS OPERATIONAL"
+          echo "🟢 Network ready for distributed stress testing"
           echo ""
