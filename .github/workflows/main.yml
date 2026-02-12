@@ -103,7 +103,6 @@ jobs:
           npm config set fetch-retry-mintimeout 10000
           npm config set fetch-retry-maxtimeout 180000
           npm config set maxsockets 100
-          npm config set network-concurrency 50
           npm config set prefer-offline false
           npm config set prefer-online true
           npm config set progress false
@@ -334,7 +333,6 @@ jobs:
           sudo apt-get install -y nodejs
           npm config set fetch-retries 10
           npm config set maxsockets 100
-          npm config set network-concurrency 50
           echo "✅ Node.js $(node --version) - GOD MODE"
 
       - name: Install Flood of Noah
@@ -467,7 +465,6 @@ jobs:
           sudo apt-get install -y nodejs
           npm config set fetch-retries 10
           npm config set maxsockets 100
-          npm config set network-concurrency 50
           echo "✅ Node.js $(node --version) - GOD MODE"
 
       - name: Install Flood of Noah
@@ -543,3 +540,4 @@ jobs:
         run: |
           pkill -f "node index.js" || true
           echo "🧹 Instance 3 cleaned up"
+
