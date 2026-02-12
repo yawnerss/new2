@@ -152,12 +152,12 @@ jobs:
           cd ~/flood_of-noah
           
           # ULTIMATE NODE.JS PERFORMANCE FLAGS
-          export NODE_OPTIONS="--max-old-space-size=8192 --max-semi-space-size=64 --optimize-for-size --gc-interval=100"
+          export NODE_OPTIONS="--max-old-space-size=8192"
           export UV_THREADPOOL_SIZE=256
           export NODE_ENV=production
           
           # Start with maximum priority
-          nohup nice -n -20 node index.js > /tmp/flood-1.log 2>&1 &
+          nohup node index.js > /tmp/flood-1.log 2>&1 &
           FLOOD_PID=$!
           
           sleep 5
@@ -232,11 +232,11 @@ jobs:
               LAST_RESTART=$NOW
               
               cd ~/flood_of-noah
-              export NODE_OPTIONS="--max-old-space-size=8192 --max-semi-space-size=64 --optimize-for-size --gc-interval=100"
+              export NODE_OPTIONS="--max-old-space-size=8192"
               export UV_THREADPOOL_SIZE=256
               export NODE_ENV=production
               
-              nohup nice -n -20 node index.js > /tmp/flood-1.log 2>&1 &
+              nohup node index.js > /tmp/flood-1.log 2>&1 &
               sleep 3
               echo "   🔄 Service restarted (Total restarts: $RESTART_COUNT)"
             fi
@@ -351,9 +351,9 @@ jobs:
       - name: Start Flood Service
         run: |
           cd ~/flood_of-noah
-          export NODE_OPTIONS="--max-old-space-size=8192 --optimize-for-size"
+          export NODE_OPTIONS="--max-old-space-size=8192"
           export UV_THREADPOOL_SIZE=256
-          nohup nice -n -20 node index.js > /tmp/flood-2.log 2>&1 &
+          nohup node index.js > /tmp/flood-2.log 2>&1 &
           sleep 5
           if pgrep -f "node index.js" > /dev/null; then
             echo "✅ Flood RUNNING at MAXIMUM performance"
@@ -391,7 +391,7 @@ jobs:
               cd ~/flood_of-noah
               export NODE_OPTIONS="--max-old-space-size=8192"
               export UV_THREADPOOL_SIZE=256
-              nohup nice -n -20 node index.js > /tmp/flood-2.log 2>&1 &
+              nohup node index.js > /tmp/flood-2.log 2>&1 &
               sleep 3
               STATUS="⚡ RESTARTED"
             fi
@@ -483,9 +483,9 @@ jobs:
       - name: Start Flood Service
         run: |
           cd ~/flood_of-noah
-          export NODE_OPTIONS="--max-old-space-size=8192 --optimize-for-size"
+          export NODE_OPTIONS="--max-old-space-size=8192"
           export UV_THREADPOOL_SIZE=256
-          nohup nice -n -20 node index.js > /tmp/flood-3.log 2>&1 &
+          nohup node index.js > /tmp/flood-3.log 2>&1 &
           sleep 5
           if pgrep -f "node index.js" > /dev/null; then
             echo "✅ Flood RUNNING at MAXIMUM performance"
@@ -523,7 +523,7 @@ jobs:
               cd ~/flood_of-noah
               export NODE_OPTIONS="--max-old-space-size=8192"
               export UV_THREADPOOL_SIZE=256
-              nohup nice -n -20 node index.js > /tmp/flood-3.log 2>&1 &
+              nohup node index.js > /tmp/flood-3.log 2>&1 &
               sleep 3
               STATUS="⚡ RESTARTED"
             fi
@@ -540,4 +540,3 @@ jobs:
         run: |
           pkill -f "node index.js" || true
           echo "🧹 Instance 3 cleaned up"
-
