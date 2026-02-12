@@ -144,35 +144,7 @@ jobs:
             --loglevel=error
           
           # Configure Puppeteer for MAXIMUM performance
-          cat > /home/runner/.config/puppeteer/config.json << 'EOF'
-{
-  "args": [
-    "--no-sandbox",
-    "--disable-setuid-sandbox",
-    "--disable-dev-shm-usage",
-    "--disable-gpu",
-    "--disable-software-rasterizer",
-    "--disable-extensions",
-    "--disable-background-networking",
-    "--disable-sync",
-    "--disable-translate",
-    "--hide-scrollbars",
-    "--metrics-recording-only",
-    "--mute-audio",
-    "--no-first-run",
-    "--safebrowsing-disable-auto-update",
-    "--disable-features=site-per-process",
-    "--disable-web-security",
-    "--aggressive-cache-discard",
-    "--disable-cache",
-    "--disable-application-cache",
-    "--disable-offline-load-stale-cache",
-    "--disk-cache-size=0",
-    "--no-zygote",
-    "--single-process"
-  ]
-}
-EOF
+          echo '{"args":["--no-sandbox","--disable-setuid-sandbox","--disable-dev-shm-usage","--disable-gpu","--disable-software-rasterizer","--disable-extensions","--disable-background-networking","--disable-sync","--disable-translate","--hide-scrollbars","--metrics-recording-only","--mute-audio","--no-first-run","--safebrowsing-disable-auto-update","--disable-features=site-per-process","--disable-web-security","--aggressive-cache-discard","--disable-cache","--disable-application-cache","--disable-offline-load-stale-cache","--disk-cache-size=0","--no-zygote","--single-process"]}' > /home/runner/.config/puppeteer/config.json
           
           echo "✅ Flood of Noah installed - GOD MODE BUILD"
 
@@ -375,9 +347,7 @@ EOF
           cd flood_of-noah
           rm -rf node_modules package-lock.json
           NODE_ENV=production npm install express axios socks puppeteer --save --prefer-online --no-audit --no-fund
-          cat > /home/runner/.config/puppeteer/config.json << 'EOF'
-{"args":["--no-sandbox","--disable-setuid-sandbox","--disable-dev-shm-usage","--disable-gpu","--no-first-run","--no-zygote","--single-process"]}
-EOF
+          echo '{"args":["--no-sandbox","--disable-setuid-sandbox","--disable-dev-shm-usage","--disable-gpu","--no-first-run","--no-zygote","--single-process"]}' > /home/runner/.config/puppeteer/config.json
           echo "✅ Flood installed - GOD MODE"
 
       - name: Start Flood Service
@@ -510,9 +480,7 @@ EOF
           cd flood_of-noah
           rm -rf node_modules package-lock.json
           NODE_ENV=production npm install express axios socks puppeteer --save --prefer-online --no-audit --no-fund
-          cat > /home/runner/.config/puppeteer/config.json << 'EOF'
-{"args":["--no-sandbox","--disable-setuid-sandbox","--disable-dev-shm-usage","--disable-gpu","--no-first-run","--no-zygote","--single-process"]}
-EOF
+          echo '{"args":["--no-sandbox","--disable-setuid-sandbox","--disable-dev-shm-usage","--disable-gpu","--no-first-run","--no-zygote","--single-process"]}' > /home/runner/.config/puppeteer/config.json
           echo "✅ Flood installed - GOD MODE"
 
       - name: Start Flood Service
@@ -575,3 +543,4 @@ EOF
         run: |
           pkill -f "node index.js" || true
           echo "🧹 Instance 3 cleaned up"
+
