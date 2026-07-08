@@ -374,8 +374,7 @@ app.get('/health', (req, res) => {
   res.json({ status: 'healthy', bots: connectedBots.length, uptime: serverStats.uptime });
 });
 
-// ========== WEB UI – SERVED ON ROOT AND /dashboard ==========
-// HTML content as a regular string (no template literals inside)
+// ========== WEB UI ==========
 const HTML_UI = [
   '<!DOCTYPE html>',
   '<html lang="en">',
@@ -719,12 +718,11 @@ app.get(['/', '/dashboard'], (req, res) => {
   res.send(HTML_UI);
 });
 
-// Catch-all: serve UI for any non-API route (SPA support)
+// Catch-all: serve UI for any non-API route
 app.use((req, res, next) => {
   if (req.path.startsWith('/api') || req.path.startsWith('/bots') || req.path.startsWith('/attack') || req.path.startsWith('/stop') || req.path.startsWith('/block') || req.path.startsWith('/unblock') || req.path.startsWith('/remove') || req.path.startsWith('/blocked') || req.path.startsWith('/methods') || req.path.startsWith('/ping') || req.path.startsWith('/health')) {
     return res.status(404).json({ error: 'API endpoint not found' });
   }
-  // For any other route, serve the UI (useful for refreshing or direct navigation)
   res.send(HTML_UI);
 });
 
