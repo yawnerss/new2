@@ -526,9 +526,16 @@ async function setupVMImage(vmName, osConfig, imgFile, diskSize) {
         printStatus('INFO', `Downloading image from ${osConfig.imgUrl}...`);
         try {
             execSync(`wget --progress=bar:force "${osConfig.imgUrl}" -O "${imgFile}.tmp"`, { stdio: 'inherit' });
-            fs.renameSync(`${imgFile}.tmp`, imgFile);
+            // Use fs.renameSync instead of fs.moveSync
+            if (fs.existsSync(`${imgFile}.tmp`)) {
+                fs.renameSync(`${imgFile}.tmp`, imgFile);
+            }
         } catch (error) {
             printStatus('ERROR', `Failed to download image: ${error.message}`);
+            // Clean up temp file if it exists
+            if (fs.existsSync(`${imgFile}.tmp`)) {
+                fs.unlinkSync(`${imgFile}.tmp`);
+            }
             process.exit(1);
         }
     }
