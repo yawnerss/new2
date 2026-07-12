@@ -22,64 +22,64 @@ const CONFIG = {
             codename: 'jammy',
             imgUrl: 'https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img',
             defaultHostname: 'ubuntu22',
-            defaultUsername: 'ubuntu',
-            defaultPassword: 'ubuntu'
+            defaultUsername: 'ricardo',
+            defaultPassword: 'ricardo'
         },
         'Ubuntu 24.04': {
             osType: 'ubuntu',
             codename: 'noble',
             imgUrl: 'https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img',
             defaultHostname: 'ubuntu24',
-            defaultUsername: 'ubuntu',
-            defaultPassword: 'ubuntu'
+            defaultUsername: 'ricardo',
+            defaultPassword: 'ricardo'
         },
         'Debian 11': {
             osType: 'debian',
             codename: 'bullseye',
             imgUrl: 'https://cloud.debian.org/images/cloud/bullseye/latest/debian-11-generic-amd64.qcow2',
             defaultHostname: 'debian11',
-            defaultUsername: 'debian',
-            defaultPassword: 'debian'
+            defaultUsername: 'ricardo',
+            defaultPassword: 'ricardo'
         },
         'Debian 12': {
             osType: 'debian',
             codename: 'bookworm',
             imgUrl: 'https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2',
             defaultHostname: 'debian12',
-            defaultUsername: 'debian',
-            defaultPassword: 'debian'
+            defaultUsername: 'ricardo',
+            defaultPassword: 'ricardo'
         },
         'Fedora 40': {
             osType: 'fedora',
             codename: '40',
             imgUrl: 'https://download.fedoraproject.org/pub/fedora/linux/releases/40/Cloud/x86_64/images/Fedora-Cloud-Base-40-1.14.x86_64.qcow2',
             defaultHostname: 'fedora40',
-            defaultUsername: 'fedora',
-            defaultPassword: 'fedora'
+            defaultUsername: 'ricardo',
+            defaultPassword: 'ricardo'
         },
         'CentOS Stream 9': {
             osType: 'centos',
             codename: 'stream9',
             imgUrl: 'https://cloud.centos.org/centos/9-stream/x86_64/images/CentOS-Stream-GenericCloud-9-latest.x86_64.qcow2',
             defaultHostname: 'centos9',
-            defaultUsername: 'centos',
-            defaultPassword: 'centos'
+            defaultUsername: 'ricardo',
+            defaultPassword: 'ricardo'
         },
         'AlmaLinux 9': {
             osType: 'almalinux',
             codename: '9',
             imgUrl: 'https://repo.almalinux.org/almalinux/9/cloud/x86_64/images/AlmaLinux-9-GenericCloud-latest.x86_64.qcow2',
             defaultHostname: 'almalinux9',
-            defaultUsername: 'alma',
-            defaultPassword: 'alma'
+            defaultUsername: 'ricardo',
+            defaultPassword: 'ricardo'
         },
         'Rocky Linux 9': {
             osType: 'rockylinux',
             codename: '9',
             imgUrl: 'https://download.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud.latest.x86_64.qcow2',
             defaultHostname: 'rocky9',
-            defaultUsername: 'rocky',
-            defaultPassword: 'rocky'
+            defaultUsername: 'ricardo',
+            defaultPassword: 'ricardo'
         }
     }
 };
@@ -376,7 +376,7 @@ async function createNewVM() {
     const selectedOS = osOptions[parseInt(choice) - 1];
     const osConfig = CONFIG.SUPPORTED_OS[selectedOS];
     
-    // Custom Inputs with validation
+    // Custom Inputs with validation - using ricardo as default
     let vmName, hostname, username, password, diskSize, memory, cpus, sshPort, guiMode, portForwards;
     
     while (true) {
@@ -401,16 +401,16 @@ async function createNewVM() {
     }
     
     while (true) {
-        username = await question(`${COLORS.cyan}[INPUT]${COLORS.reset} Enter username (default: ${osConfig.defaultUsername}): `);
-        username = username || osConfig.defaultUsername;
+        username = await question(`${COLORS.cyan}[INPUT]${COLORS.reset} Enter username (default: ricardo): `);
+        username = username || 'ricardo';
         if (validateInput('username', username)) {
             break;
         }
     }
     
     while (true) {
-        password = await question(`${COLORS.cyan}[INPUT]${COLORS.reset} Enter password (default: ${osConfig.defaultPassword}): `);
-        password = password || osConfig.defaultPassword;
+        password = await question(`${COLORS.cyan}[INPUT]${COLORS.reset} Enter password (default: ricardo): `);
+        password = password || 'ricardo';
         if (password.length > 0) {
             break;
         } else {
@@ -514,6 +514,9 @@ async function createNewVM() {
     
     saveVMConfig(config);
     printStatus('SUCCESS', `VM '${vmName}' created successfully.`);
+    printStatus('INFO', `VM is NOT running. Use option 2 to start it.`);
+    printStatus('INFO', `SSH: ssh -p ${sshPort} ${username}@localhost`);
+    printStatus('INFO', `Password: ${password}`);
 }
 
 async function setupVMImage(vmName, osConfig, imgFile, diskSize) {
