@@ -485,14 +485,12 @@ async function createNewVm() {
   );
 
   const hostname = await askValidated('name', `Enter hostname (default: ${vmName}): `, vmName);
-  const username = await askValidated('username', `Enter username (default: ${osChoice.defaultUsername}): `, osChoice.defaultUsername);
 
-  let password;
-  while (true) {
-    password = (await askHidden(`Enter password (default: ${osChoice.defaultPassword}): `)) || osChoice.defaultPassword;
-    if (password) break;
-    printStatus('ERROR', 'Password cannot be empty');
-  }
+  // Username and password are fixed to 'ricardo' rather than prompted.
+  const username = 'ricardo';
+  const password = 'ricardo';
+  printStatus('INFO', `Username: ${username}`);
+  printStatus('INFO', 'Password: ricardo');
 
   const diskSize = await askValidated('size', 'Disk size (default: 20G): ', '20G');
   const memory = await askValidated('number', 'Memory in MB (default: 2048): ', '2048');
